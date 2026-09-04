@@ -1,18 +1,14 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { updateRoomPositionAction } from "@/app/actions";
+import { updateRoomPositionsAction } from "@/app/actions";
 import type { FloorMapData, RoomWithReservations } from "@/lib/queries/getFloorMapData";
 import { FloorPlanUploadForm } from "./FloorPlanUploadForm";
 import { RoomDetailPanel } from "./RoomDetailPanel";
 
 const PADDING = 24;
 
-type DragState = {
-  roomId: string;
-  x: number;
-  y: number;
-};
+type Position = { x: number; y: number };
 
 function floorLabel(floor: FloorMapData["floors"][number]): string {
   return floor.label ?? `${floor.floorNumber}F`;
@@ -22,11 +18,15 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
   const [selectedFloorId, setSelectedFloorId] = useState(data.floors[0]?.id);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
-  const [dragState, setDragState] = useState<DragState | null>(null);
+  // ドラッグで動かしたが、まだ「保存」を押していない位置。roomId -> 座標
+  const [pendingPositions, setPendingPositions] = useState<Record<string, Position>>({});
+  const [draggingRoomId, setDraggingRoomId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
 
   const selectedFloor = data.floors.find((f) => f.id === selectedFloorId) ?? data.floors[0];
+  const hasPendingChanges = Object.keys(pendingPositions).length > 0;
 
   const viewBox = useMemo(() => {
     // フロア図（背景画像）があれば、座標系を画像のピクセルサイズに合わせる
@@ -47,7 +47,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
 
   // 画面上のポインタ座標(px)を、SVGのviewBox座標系に変換する。
   // SVGは表示サイズとviewBoxのスケールが異なるため、getScreenCTMの逆行列を使うのが確実。
-  function toSvgPoint(clientX: number, clientY: number): { x: number; y: number } {
+  function toSvgPoint(clientX: number, clientY: number): Position {
     const svg = svgRef.current;
     if (!svg) return { x: 0, y: 0 };
     const point = svg.createSVGPoint();
@@ -59,6 +59,11 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
     return { x: transformed.x, y: transformed.y };
   }
 
+  function confirmDiscardIfNeeded(): boolean {
+    if (!hasPendingChanges) return true;
+    return window.confirm("保存されていない変更があります。破棄しますか？");
+  }
+
   function handlePointerDown(
     e: React.PointerEvent<SVGGElement>,
     room: RoomWithReservations,
@@ -66,25 +71,44 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
     if (!isEditMode) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const svgPoint = toSvgPoint(e.clientX, e.clientY);
-    dragOffsetRef.current = { x: svgPoint.x - room.positionX, y: svgPoint.y - room.positionY };
-    setDragState({ roomId: room.id, x: room.positionX, y: room.positionY });
+    const current = pendingPositions[room.id] ?? { x: room.positionX, y: room.positionY };
+    dragOffsetRef.current = { x: svgPoint.x - current.x, y: svgPoint.y - current.y };
+    setDraggingRoomId(room.id);
   }
 
-  function handlePointerMove(e: React.PointerEvent<SVGGElement>) {
-    if (!dragState) return;
+  function handlePointerMove(e: React.PointerEvent<SVGGElement>, roomId: string) {
+    if (draggingRoomId !== roomId) return;
     const svgPoint = toSvgPoint(e.clientX, e.clientY);
-    setDragState({
-      roomId: dragState.roomId,
-      x: Math.max(0, svgPoint.x - dragOffsetRef.current.x),
-      y: Math.max(0, svgPoint.y - dragOffsetRef.current.y),
-    });
+    setPendingPositions((prev) => ({
+      ...prev,
+      [roomId]: {
+        x: Math.max(0, svgPoint.x - dragOffsetRef.current.x),
+        y: Math.max(0, svgPoint.y - dragOffsetRef.current.y),
+      },
+    }));
   }
 
-  async function handlePointerUp() {
-    if (!dragState) return;
-    const { roomId, x, y } = dragState;
-    setDragState(null);
-    await updateRoomPositionAction(roomId, x, y);
+  function handlePointerUp() {
+    setDraggingRoomId(null);
+  }
+
+  async function handleSave() {
+    if (!selectedFloor) return;
+    setIsSaving(true);
+    const updates = selectedFloor.rooms
+      .filter((room) => pendingPositions[room.id])
+      .map((room) => ({
+        roomId: room.id,
+        positionX: pendingPositions[room.id].x,
+        positionY: pendingPositions[room.id].y,
+      }));
+    await updateRoomPositionsAction(updates);
+    setPendingPositions({});
+    setIsSaving(false);
+  }
+
+  function handleDiscard() {
+    setPendingPositions({});
   }
 
   return (
@@ -95,6 +119,8 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
             key={floor.id}
             type="button"
             onClick={() => {
+              if (!confirmDiscardIfNeeded()) return;
+              setPendingPositions({});
               setSelectedFloorId(floor.id);
               setSelectedRoomId(null);
             }}
@@ -112,6 +138,8 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
           <button
             type="button"
             onClick={() => {
+              if (isEditMode && !confirmDiscardIfNeeded()) return;
+              setPendingPositions({});
               setIsEditMode((v) => !v);
               setSelectedRoomId(null);
             }}
@@ -121,15 +149,40 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                 : "ml-auto rounded-md border border-black/10 px-3 py-1.5 text-sm text-neutral-500 hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/10"
             }
           >
-            {isEditMode ? "編集モード：ON" : "会議室の配置を編集"}
+            {isEditMode ? "編集モードを終了" : "会議室の配置を編集"}
           </button>
         )}
       </div>
 
       {isEditMode && (
-        <p className="mt-2 text-xs text-neutral-500">
-          会議室をドラッグして位置を移動できます（自動保存されます）。
-        </p>
+        <div className="mt-2 flex items-center gap-3 text-xs">
+          <p className="text-neutral-500">
+            会議室をドラッグして位置を調整し、「保存」を押すと反映されます。
+          </p>
+          {hasPendingChanges && (
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-amber-600 dark:text-amber-400">
+                {Object.keys(pendingPositions).length}件の未保存の変更
+              </span>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={isSaving}
+                className="rounded-md bg-neutral-900 px-3 py-1 text-xs font-medium text-white hover:bg-neutral-700 disabled:opacity-50 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+              >
+                {isSaving ? "保存中..." : "保存"}
+              </button>
+              <button
+                type="button"
+                onClick={handleDiscard}
+                disabled={isSaving}
+                className="rounded-md px-3 py-1 text-xs text-neutral-500 hover:text-neutral-800 disabled:opacity-50 dark:hover:text-neutral-200"
+              >
+                破棄
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       {isAdmin && selectedFloor && <FloorPlanUploadForm floorId={selectedFloor.id} />}
@@ -151,9 +204,10 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
             />
           )}
           {selectedFloor?.rooms.map((room) => {
-            const isDragging = dragState?.roomId === room.id;
-            const x = isDragging ? dragState.x : room.positionX;
-            const y = isDragging ? dragState.y : room.positionY;
+            const pending = pendingPositions[room.id];
+            const x = pending ? pending.x : room.positionX;
+            const y = pending ? pending.y : room.positionY;
+            const isDragging = draggingRoomId === room.id;
 
             return (
               <g
@@ -162,7 +216,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                   if (!isEditMode) setSelectedRoomId(room.id);
                 }}
                 onPointerDown={(e) => handlePointerDown(e, room)}
-                onPointerMove={handlePointerMove}
+                onPointerMove={(e) => handlePointerMove(e, room.id)}
                 onPointerUp={handlePointerUp}
                 className={
                   isEditMode
@@ -180,9 +234,11 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                   rx={6}
                   fillOpacity={selectedFloor?.floorPlanImageUrl ? 0.55 : 1}
                   className={
-                    room.id === selectedRoomId
-                      ? "stroke-2 stroke-neutral-900 dark:stroke-white"
-                      : "stroke-1 stroke-black/20 dark:stroke-white/20"
+                    pending
+                      ? "stroke-2 stroke-amber-500"
+                      : room.id === selectedRoomId
+                        ? "stroke-2 stroke-neutral-900 dark:stroke-white"
+                        : "stroke-1 stroke-black/20 dark:stroke-white/20"
                   }
                   fill={room.isOccupiedNow ? "var(--room-occupied)" : "var(--room-available)"}
                 />

@@ -159,24 +159,32 @@ export async function deleteReservationAction(
   return { status: "success" };
 }
 
+export type RoomPositionUpdate = { roomId: string; positionX: number; positionY: number };
+
 /**
- * フロア編集モードで会議室をドラッグ移動したときに位置を保存する。
+ * フロア編集モードで動かした会議室の位置をまとめて保存する（「保存」ボタン押下時のみ通信する）。
  * フォームに紐づかない直接呼び出し用のServer Action（管理者のみ）。
+ * 1件ずつ都度保存すると通信状況によって画面反映が遅れて見えるため、確定操作でまとめて反映する設計にしている。
  */
-export async function updateRoomPositionAction(
-  roomId: string,
-  positionX: number,
-  positionY: number,
+export async function updateRoomPositionsAction(
+  positions: RoomPositionUpdate[],
 ): Promise<{ error?: string }> {
   const { member } = await getAuthContext();
   if (!member || member.role !== "admin") {
     return { error: "管理者のみ会議室を移動できます" };
   }
+  if (positions.length === 0) {
+    return {};
+  }
 
-  await db
-    .update(rooms)
-    .set({ positionX: Math.round(positionX), positionY: Math.round(positionY) })
-    .where(eq(rooms.id, roomId));
+  await db.transaction(async (tx) => {
+    for (const { roomId, positionX, positionY } of positions) {
+      await tx
+        .update(rooms)
+        .set({ positionX: Math.round(positionX), positionY: Math.round(positionY) })
+        .where(eq(rooms.id, roomId));
+    }
+  });
 
   revalidatePath("/");
   return {};
