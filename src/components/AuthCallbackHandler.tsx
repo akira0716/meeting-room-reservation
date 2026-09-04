@@ -20,33 +20,60 @@ export function AuthCallbackHandler() {
       const supabase = createSupabaseBrowserClient();
       const next = searchParams.get("next") ?? "/";
 
-      // パターン1：URLのハッシュにaccess_token/refresh_tokenが含まれる場合
-      // （generateLinkなど、サーバー側で発行したリンク）
-      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-      const accessToken = hashParams.get("access_token");
-      const refreshToken = hashParams.get("refresh_token");
-      if (accessToken && refreshToken) {
-        const { error } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        });
-        if (!error) {
+      try {
+        // パターン1：URLのハッシュにaccess_token/refresh_tokenが含まれる場合
+        // （generateLinkなど、サーバー側で発行したリンク）
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+        const accessToken = hashParams.get("access_token");
+        const refreshToken = hashParams.get("refresh_token");
+        if (accessToken && refreshToken) {
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (error) {
+            console.error("[auth/callback] setSession failed:", error);
+            setError(`サインインに失敗しました（setSession: ${error.message}）`);
+            return;
+          }
           router.replace(next);
           return;
         }
-      }
 
-      // パターン2：?code= が含まれる場合（signInWithOAuth等のPKCEフロー）
-      const code = searchParams.get("code");
-      if (code) {
-        const { error } = await supabase.auth.exchangeCodeForSession(code);
-        if (!error) {
+        // パターン2：?code= が含まれる場合（signInWithOAuth等のPKCEフロー）
+        const code = searchParams.get("code");
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) {
+            console.error("[auth/callback] exchangeCodeForSession failed:", error);
+            setError(`サインインに失敗しました（exchangeCodeForSession: ${error.message}）`);
+            return;
+          }
           router.replace(next);
           return;
         }
-      }
 
-      setError("サインインに失敗しました。リンクの有効期限が切れている可能性があります。");
+        // どちらのパターンにも該当しない = Supabaseから認証情報が返ってきていない
+        const errorDescription = searchParams.get("error_description");
+        console.error(
+          "[auth/callback] no code/hash tokens found. search:",
+          window.location.search,
+          "hash:",
+          window.location.hash,
+        );
+        setError(
+          errorDescription
+            ? `サインインに失敗しました（${errorDescription}）`
+            : "サインインに失敗しました（認証情報を受け取れませんでした）",
+        );
+      } catch (err) {
+        console.error("[auth/callback] unexpected error:", err);
+        setError(
+          `サインイン処理中に予期しないエラーが発生しました：${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
     }
 
     run();
