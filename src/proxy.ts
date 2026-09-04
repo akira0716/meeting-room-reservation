@@ -24,11 +24,6 @@ export async function proxy(request: NextRequest) {
           });
         },
       },
-      // browserClient.ts / serverAuthClient.tsと同じ設定に揃える（詳細はbrowserClient.tsのコメント参照）
-      cookieOptions: {
-        sameSite: "lax",
-        path: "/",
-      },
     },
   );
 

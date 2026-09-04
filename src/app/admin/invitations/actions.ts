@@ -1,26 +1,32 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { getAuthContext } from "@/lib/auth/getAuthContext";
 import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
+import { createSupabaseServerClient } from "@/lib/supabase/serverClient";
 
 export type CreateInvitationState =
   | { status: "idle" }
   | { status: "error"; message: string }
   | { status: "success" };
 
+async function getOrigin(): Promise<string> {
+  const headerList = await headers();
+  const host = headerList.get("host") ?? "localhost:3000";
+  const protocol = host.startsWith("localhost") ? "http" : "https";
+  return `${protocol}://${host}`;
+}
+
 /**
  * メンバーを招待する。
+ * 1. usersテーブルに status:"invited" の行を先に作っておく（authUserIdはまだnull）
+ * 2. Supabase Authの招待メールを送信する（管理者向けsecret keyクライアントを使用）
  *
- * 認証はGoogle認証のみのため、招待は「usersテーブルに status:"invited" の行を
- * 先に作っておく」だけで完結する（メール送信は不要）。招待された人が該当の
- * メールアドレスのGoogleアカウントでサインインすると、getAuthContext()が
- * 「authUserId未設定・同じメールアドレスのusers行」を自動的に見つけて紐付け、
- * status を active にする。
- *
- * 誰にどのGoogleアカウントでサインインしてほしいかは、管理者がSlack等で
- * 案内する運用を想定している。
+ * 招待された人がメール内のリンクをクリックしてサインインすると、getAuthContext()が
+ * 「authUserId未設定・同じメールアドレスのusers行」を見つけて自動的に紐付け、
+ * status を active にする（招待受諾用の別ページは不要）。
  */
 export async function createInvitationAction(
   _prevState: CreateInvitationState,
@@ -54,6 +60,19 @@ export async function createInvitationAction(
       // 既にactiveなメンバーを再招待した場合、status/authUserIdは上書きしない（権限だけ更新する）
       set: { role },
     });
+
+  const origin = await getOrigin();
+  const supabase = createSupabaseServerClient();
+  const { error } = await supabase.auth.admin.inviteUserByEmail(email, {
+    redirectTo: `${origin}/auth/callback?next=${encodeURIComponent("/set-password")}`,
+  });
+
+  if (error) {
+    return {
+      status: "error",
+      message: `招待メールの送信に失敗しました: ${error.message}`,
+    };
+  }
 
   revalidatePath("/admin/invitations");
   return { status: "success" };
