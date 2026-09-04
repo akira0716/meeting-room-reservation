@@ -11,14 +11,16 @@
 - [x] `@types/node`のバージョン不整合でVercelビルドが失敗する問題を修正（ローカルの`--legacy-peer-deps`頼みだった箇所を根本修正）
 
 ### 認証・認可（設計は[README.md](./README.md#3-設計判断)で整理済み。上流設計の見せ場として実装した）
-- [x] Supabase Authのセットアップ（初回：マジックリンク→パスワード設定／2回目以降：メール+パスワード）
-- [x] 招待（`Invitation`）発行API・管理ページ（`/admin/invitations`、管理者が招待メールアドレス＋roleを指定）
-- [x] 招待リンク経由のサインアップ・組織参加フロー（`/invite/[token]` → マジックリンク → `/set-password`）
+- [x] Supabase Authのセットアップ（初回：メールリンク→パスワード設定／2回目以降：メール+パスワード）
+- [x] 招待発行API・管理ページ（`/admin/invitations`、管理者が招待メールアドレス＋roleを指定）
+- [x] 招待メールの自動送信（`auth.admin.inviteUserByEmail`）。旧・自前トークン方式(`/invite/[token]`)は廃止し、`invitations`テーブルも削除
+- [x] 招待メール経由のサインイン・組織参加フロー（メールのリンク→`/auth/callback`→`getAuthContext()`が自動でusers行に紐付け→`/set-password`）
 - [x] 初期管理者のconfigファイルシード実装（`config/seed-admins.json` + `npm run auth:seed-admins`）
 - [x] admin/member権限に応じたAPIの認可チェック（フロア図アップロードは管理者のみ、予約作成はサインイン済み組織メンバーのみ）
+- [x] **バグ修正**：Supabase管理API発行リンクの認証情報がURLハッシュで返る問題。`/auth/callback`をサーバーRoute Handler→クライアントページに書き換えて対応（[README](./README.md#3-設計判断)に詳細）
+- [x] **要設定**：SupabaseダッシュボードのRedirect URLsが未設定だとサインインが失敗する問題に気づき、READMEのセットアップ手順に追記
 - [ ] パスワード再設定（forgot password）専用の導線・文言（現状は「初めての方はこちら」と共用）
 - [ ] Supabaseのメール送信レート制限（無料枠は非常に少なく、開発中に実際に上限に達した）対策。カスタムSMTP設定、またはUIに分かりやすい案内を追加
-- [ ] 招待URLをメールで自動送信する（現状は管理画面にURLを表示するだけで、Slack等での手動共有を想定した設計のまま）
 
 ## 優先度：中
 
@@ -42,5 +44,4 @@
 ## スコープ外（README「今後の展望」・stretch goals）
 
 - [ ] Google Calendar APIとの実連携（読み取り／書き込み）
-- [ ] 招待トークンの有効期限切れ・再送フロー
 - [ ] 部屋・機能単位のより細かい権限設定

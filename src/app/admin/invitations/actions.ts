@@ -1,18 +1,33 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
+import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { getAuthContext } from "@/lib/auth/getAuthContext";
 import { db } from "@/lib/db/client";
-import { invitations } from "@/lib/db/schema";
-import { revalidatePath } from "next/cache";
-
-const INVITATION_EXPIRES_IN_DAYS = 7;
+import { users } from "@/lib/db/schema";
+import { createSupabaseServerClient } from "@/lib/supabase/serverClient";
 
 export type CreateInvitationState =
   | { status: "idle" }
   | { status: "error"; message: string }
-  | { status: "success"; invitePath: string };
+  | { status: "success" };
 
+async function getOrigin(): Promise<string> {
+  const headerList = await headers();
+  const host = headerList.get("host") ?? "localhost:3000";
+  const protocol = host.startsWith("localhost") ? "http" : "https";
+  return `${protocol}://${host}`;
+}
+
+/**
+ * メンバーを招待する。
+ * 1. usersテーブルに status:"invited" の行を先に作っておく（authUserIdはまだnull）
+ * 2. Supabase Authの招待メールを送信する（管理者向けsecret keyクライアントを使用）
+ *
+ * 招待された人がメール内のリンクをクリックしてサインインすると、getAuthContext()が
+ * 「authUserId未設定・同じメールアドレスのusers行」を見つけて自動的に紐付け、
+ * status を active にする（招待受諾用の別ページは不要）。
+ */
 export async function createInvitationAction(
   _prevState: CreateInvitationState,
   formData: FormData,
@@ -31,19 +46,34 @@ export async function createInvitationAction(
     return { status: "error", message: "権限の指定が不正です" };
   }
 
-  const token = randomUUID();
-  const expiresAt = new Date(Date.now() + INVITATION_EXPIRES_IN_DAYS * 24 * 60 * 60 * 1000);
+  await db
+    .insert(users)
+    .values({
+      organizationId: member.organizationId,
+      email,
+      role,
+      status: "invited",
+      invitedBy: member.id,
+    })
+    .onConflictDoUpdate({
+      target: [users.organizationId, users.email],
+      // 既にactiveなメンバーを再招待した場合、status/authUserIdは上書きしない（権限だけ更新する）
+      set: { role },
+    });
 
-  await db.insert(invitations).values({
-    organizationId: member.organizationId,
-    email,
-    token,
-    role,
-    invitedBy: member.id,
-    expiresAt,
+  const origin = await getOrigin();
+  const supabase = createSupabaseServerClient();
+  const { error } = await supabase.auth.admin.inviteUserByEmail(email, {
+    redirectTo: `${origin}/auth/callback?next=${encodeURIComponent("/set-password")}`,
   });
 
-  revalidatePath("/admin/invitations");
+  if (error) {
+    return {
+      status: "error",
+      message: `招待メールの送信に失敗しました: ${error.message}`,
+    };
+  }
 
-  return { status: "success", invitePath: `/invite/${token}` };
+  revalidatePath("/admin/invitations");
+  return { status: "success" };
 }

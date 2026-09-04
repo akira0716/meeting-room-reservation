@@ -91,28 +91,6 @@ export const users = pgTable(
 );
 
 /**
- * 招待。管理者が発行し、招待された人はtokenを使って参加する。
- */
-export const invitations = pgTable(
-  "invitations",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: uuid("organization_id")
-      .references(() => organizations.id, { onDelete: "cascade" })
-      .notNull(),
-    email: text("email").notNull(),
-    token: text("token").notNull(),
-    role: text("role", { enum: ["admin", "member"] }).notNull().default("member"),
-    invitedBy: uuid("invited_by")
-      .references(() => users.id)
-      .notNull(),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
-  },
-  (table) => [uniqueIndex("invitations_token_idx").on(table.token)],
-);
-
-/**
  * 予約。versionは楽観ロック用（更新時にversionが一致しない場合は競合エラーとする）。
  * bookerName: 予約者名（会議の主催者とは限らないため organizerName ではなく bookerName とする）
  */

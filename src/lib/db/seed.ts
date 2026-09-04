@@ -3,8 +3,8 @@
  * 実行: npm run db:seed
  *
  * 「デモ株式会社」を find-or-create し、その組織にぶら下がる建物・フロア・会議室・予約だけを
- * 削除してから再投入する（冪等）。usersとinvitationsは意図的に一切触らない
- * ―― organizationsをdeleteするとON DELETE CASCADEでusers/invitationsも消えてしまい、
+ * 削除してから再投入する（冪等）。usersは意図的に一切触らない
+ * ―― organizationsをdeleteするとON DELETE CASCADEでusersも消えてしまい、
  * 認証で紐づけたアカウントが壊れるため。管理者ユーザーの投入は npm run auth:seed-admins を使う。
  */
 import { eq } from "drizzle-orm";

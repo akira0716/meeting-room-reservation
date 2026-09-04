@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState } from "react";
 import {
   createInvitationAction,
   type CreateInvitationState,
@@ -10,17 +10,10 @@ const initialState: CreateInvitationState = { status: "idle" };
 
 export function CreateInvitationForm() {
   const [state, formAction] = useActionState(createInvitationAction, initialState);
-  const [copied, setCopied] = useState(false);
 
   return (
     <div>
-      <form
-        action={(formData) => {
-          setCopied(false);
-          formAction(formData);
-        }}
-        className="flex flex-wrap items-end gap-2"
-      >
+      <form action={formAction} className="flex flex-wrap items-end gap-2">
         <div>
           <label className="block text-xs font-medium text-neutral-500">メールアドレス</label>
           <input
@@ -45,7 +38,7 @@ export function CreateInvitationForm() {
           type="submit"
           className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
         >
-          招待リンクを発行
+          招待メールを送信
         </button>
       </form>
 
@@ -53,21 +46,9 @@ export function CreateInvitationForm() {
         <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">{state.message}</p>
       )}
       {state.status === "success" && (
-        <div className="mt-2 flex items-center gap-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-sm dark:border-emerald-900 dark:bg-emerald-900/30">
-          <code className="break-all">{`${typeof window !== "undefined" ? window.location.origin : ""}${state.invitePath}`}</code>
-          <button
-            type="button"
-            onClick={() => {
-              navigator.clipboard.writeText(
-                `${window.location.origin}${state.status === "success" ? state.invitePath : ""}`,
-              );
-              setCopied(true);
-            }}
-            className="shrink-0 rounded border border-black/10 px-2 py-0.5 text-xs hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/10"
-          >
-            {copied ? "コピー済み" : "コピー"}
-          </button>
-        </div>
+        <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">
+          招待メールを送信しました。メール内のリンクからサインインし、パスワードを設定すると参加が完了します。
+        </p>
       )}
     </div>
   );
