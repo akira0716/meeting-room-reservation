@@ -4,11 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 /**
- * フロア図（背景画像）のアップロード用フォーム。
- *
- * NOTE: 暫定UI。認証・認可(管理者ページ)が実装されるまでは誰でも操作できてしまうため、
- * 「管理者用の簡易操作」であることが分かるよう控えめな表示にしている。
- * TASKS.mdの認証・認可実装後、管理者のみに表示を絞る。
+ * フロア図（背景画像）のアップロード用フォーム。呼び出し元（page.tsx）でisAdminのユーザーにのみ表示する。
+ * サーバー側（/api/floors/[floorId]/image）でも管理者権限を再チェックしている。
  */
 export function FloorPlanUploadForm({ floorId }: { floorId: string }) {
   const router = useRouter();
@@ -46,7 +43,7 @@ export function FloorPlanUploadForm({ floorId }: { floorId: string }) {
   return (
     <div className="mt-2 flex items-center gap-2 text-xs text-neutral-400">
       <label className="cursor-pointer rounded border border-dashed border-black/20 px-2 py-1 hover:border-black/40 dark:border-white/20 dark:hover:border-white/40">
-        {isUploading ? "アップロード中..." : "（管理者用・暫定）フロア図を差し替え"}
+        {isUploading ? "アップロード中..." : "フロア図を差し替え"}
         <input
           type="file"
           accept="image/png,image/jpeg,image/webp"

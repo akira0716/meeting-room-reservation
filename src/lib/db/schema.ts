@@ -65,20 +65,30 @@ export const rooms = pgTable("rooms", {
 /**
  * ユーザー。Supabase Authのユーザー(authUserId)と組織を紐づける。
  * role: 'admin' | 'member'、status: 'invited' | 'active'
+ *
+ * authUserIdは、管理者のconfigシード時点や招待発行時点ではnull（まだ一度もサインインしていない）。
+ * 本人が初めてSupabase Authでサインインしたときに、emailが一致するこの行にauthUserIdを紐づける。
  */
-export const users = pgTable("users", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  organizationId: uuid("organization_id")
-    .references(() => organizations.id, { onDelete: "cascade" })
-    .notNull(),
-  authUserId: uuid("auth_user_id"), // Supabase Auth側のユーザーID（別スキーマのため外部キー制約は張らない）
-  email: text("email").notNull(),
-  name: text("name"),
-  role: text("role", { enum: ["admin", "member"] }).notNull().default("member"),
-  status: text("status", { enum: ["invited", "active"] }).notNull().default("invited"),
-  invitedBy: uuid("invited_by"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .references(() => organizations.id, { onDelete: "cascade" })
+      .notNull(),
+    authUserId: uuid("auth_user_id"), // Supabase Auth側のユーザーID（別スキーマのため外部キー制約は張らない）
+    email: text("email").notNull(),
+    name: text("name"),
+    role: text("role", { enum: ["admin", "member"] }).notNull().default("member"),
+    status: text("status", { enum: ["invited", "active"] }).notNull().default("invited"),
+    invitedBy: uuid("invited_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("users_auth_user_id_idx").on(table.authUserId),
+    uniqueIndex("users_organization_id_email_idx").on(table.organizationId, table.email),
+  ],
+);
 
 /**
  * 招待。管理者が発行し、招待された人はtokenを使って参加する。

@@ -2,34 +2,32 @@
  * ポートフォリオ用のダミーデータ投入スクリプト。
  * 実行: npm run db:seed
  *
- * 冪等にするため、実行のたびに関連テーブルを全削除してから投入し直す。
- * 実在の会社のデータは一切使用しない。
+ * 「デモ株式会社」を find-or-create し、その組織にぶら下がる建物・フロア・会議室・予約だけを
+ * 削除してから再投入する（冪等）。usersとinvitationsは意図的に一切触らない
+ * ―― organizationsをdeleteするとON DELETE CASCADEでusers/invitationsも消えてしまい、
+ * 認証で紐づけたアカウントが壊れるため。管理者ユーザーの投入は npm run auth:seed-admins を使う。
  */
+import { eq } from "drizzle-orm";
 import { db } from "./client";
-import {
-  organizations,
-  buildings,
-  floors,
-  rooms,
-  reservations,
-  users,
-} from "./schema";
+import { organizations, buildings, floors, rooms, reservations } from "./schema";
 
 async function main() {
-  console.log("既存データを削除しています...");
-  await db.delete(reservations);
-  await db.delete(rooms);
-  await db.delete(floors);
-  await db.delete(buildings);
-  await db.delete(users);
-  await db.delete(organizations);
+  console.log("組織を確認しています...");
+  const [existingOrg] = await db
+    .select()
+    .from(organizations)
+    .where(eq(organizations.name, "デモ株式会社"))
+    .limit(1);
 
-  console.log("組織・建物・フロアを投入しています...");
-  const [org] = await db
-    .insert(organizations)
-    .values({ name: "デモ株式会社" })
-    .returning();
+  const org =
+    existingOrg ??
+    (await db.insert(organizations).values({ name: "デモ株式会社" }).returning())[0];
 
+  console.log("既存のフロアマップデータを削除しています...");
+  // buildingsをdeleteすればfloors/rooms/reservationsはON DELETE CASCADEで一緒に消える
+  await db.delete(buildings).where(eq(buildings.organizationId, org.id));
+
+  console.log("建物・フロアを投入しています...");
   const [building] = await db
     .insert(buildings)
     .values({ organizationId: org.id, name: "本社ビル" })
@@ -44,15 +42,6 @@ async function main() {
     .insert(floors)
     .values({ buildingId: building.id, floorNumber: 5 })
     .returning();
-
-  console.log("管理者ユーザーを投入しています...");
-  await db.insert(users).values({
-    organizationId: org.id,
-    email: "admin@example.com",
-    name: "管理者（デモ）",
-    role: "admin",
-    status: "active",
-  });
 
   console.log("会議室を投入しています...");
   const [roomA, roomB, roomC] = await db

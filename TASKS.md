@@ -9,13 +9,15 @@
 - [ ] 環境変数（`DATABASE_URL` / `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`）をVercel側に設定
 - [ ] デプロイ後の動作確認（フロアマップ表示・予約作成・重複エラー）
 
-### 認証・認可（設計は[README.md](./README.md#3-設計判断)で整理済み。上流設計の見せ場として実装したい）
-- [ ] Supabase Authのセットアップ（マジックリンク／メールOTP）
-- [ ] 招待（`Invitation`）発行API・管理ページ（管理者が招待メールアドレス＋roleを指定）
-- [ ] 招待リンク経由のサインアップ・組織参加フロー（`User`をinvited→activeに更新）
-- [ ] 初期管理者のconfigファイルシード実装（`config/seed-admins.json`想定）
-- [ ] admin/member権限に応じたAPIの認可チェック（部屋の作成・編集はadminのみ等）
-- [ ] **`/api/floors/[floorId]/image`（フロア図アップロード）を管理者のみ呼べるように制限する**（認証実装までの暫定として現状は無制限に呼び出せる）
+### 認証・認可（設計は[README.md](./README.md#3-設計判断)で整理済み。上流設計の見せ場として実装した）
+- [x] Supabase Authのセットアップ（初回：マジックリンク→パスワード設定／2回目以降：メール+パスワード）
+- [x] 招待（`Invitation`）発行API・管理ページ（`/admin/invitations`、管理者が招待メールアドレス＋roleを指定）
+- [x] 招待リンク経由のサインアップ・組織参加フロー（`/invite/[token]` → マジックリンク → `/set-password`）
+- [x] 初期管理者のconfigファイルシード実装（`config/seed-admins.json` + `npm run auth:seed-admins`）
+- [x] admin/member権限に応じたAPIの認可チェック（フロア図アップロードは管理者のみ、予約作成はサインイン済み組織メンバーのみ）
+- [ ] パスワード再設定（forgot password）専用の導線・文言（現状は「初めての方はこちら」と共用）
+- [ ] Supabaseのメール送信レート制限（無料枠は非常に少なく、開発中に実際に上限に達した）対策。カスタムSMTP設定、またはUIに分かりやすい案内を追加
+- [ ] 招待URLをメールで自動送信する（現状は管理画面にURLを表示するだけで、Slack等での手動共有を想定した設計のまま）
 
 ## 優先度：中
 

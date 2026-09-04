@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { getAuthContext } from "@/lib/auth/getAuthContext";
 import { DrizzleReservationRepository } from "@/lib/repositories/drizzleReservationRepository";
 import {
   createReservation,
@@ -21,6 +22,11 @@ export async function createReservationAction(
   _prevState: CreateReservationState,
   formData: FormData,
 ): Promise<CreateReservationState> {
+  const { member } = await getAuthContext();
+  if (!member) {
+    return { status: "error", message: "サインインしている組織メンバーのみ予約できます" };
+  }
+
   const roomId = String(formData.get("roomId") ?? "");
   const title = String(formData.get("title") ?? "").trim();
   const bookerName = String(formData.get("bookerName") ?? "").trim();

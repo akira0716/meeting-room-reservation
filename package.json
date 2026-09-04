@@ -11,9 +11,11 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx --env-file=.env src/lib/db/seed.ts",
-    "storage:setup": "tsx --env-file=.env src/lib/db/setupStorage.ts"
+    "storage:setup": "tsx --env-file=.env src/lib/db/setupStorage.ts",
+    "auth:seed-admins": "tsx --env-file=.env src/lib/db/seedAdmins.ts"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.5",
     "@supabase/supabase-js": "^2.115.0",
     "drizzle-orm": "^0.45.2",
     "image-size": "^2.0.2",

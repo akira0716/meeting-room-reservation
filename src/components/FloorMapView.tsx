@@ -11,7 +11,7 @@ function floorLabel(floor: FloorMapData["floors"][number]): string {
   return floor.label ?? `${floor.floorNumber}F`;
 }
 
-export function FloorMapView({ data }: { data: FloorMapData }) {
+export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: boolean }) {
   const [selectedFloorId, setSelectedFloorId] = useState(data.floors[0]?.id);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
 
@@ -56,7 +56,7 @@ export function FloorMapView({ data }: { data: FloorMapData }) {
         ))}
       </div>
 
-      {selectedFloor && <FloorPlanUploadForm floorId={selectedFloor.id} />}
+      {isAdmin && selectedFloor && <FloorPlanUploadForm floorId={selectedFloor.id} />}
 
       <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr]">
         <svg

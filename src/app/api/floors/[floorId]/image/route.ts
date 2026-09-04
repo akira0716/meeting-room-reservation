@@ -2,8 +2,9 @@ import { eq } from "drizzle-orm";
 import { imageSize } from "image-size";
 import { revalidatePath } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
+import { getAuthContext } from "@/lib/auth/getAuthContext";
 import { db } from "@/lib/db/client";
-import { floors } from "@/lib/db/schema";
+import { buildings, floors } from "@/lib/db/schema";
 import { createSupabaseServerClient } from "@/lib/supabase/serverClient";
 
 const BUCKET = "floor-plans";
@@ -12,19 +13,30 @@ const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
 
 /**
  * フロア図（背景画像）をアップロードし、floorsテーブルにパスとサイズを保存する。
- *
- * NOTE: 認証・認可（管理者ページ）が未実装のため、このAPIは暫定的に誰でも呼び出せる状態。
- * TASKS.mdの「認証・認可」実装時に、管理者権限チェックをここに追加すること。
+ * 管理者（自分の組織のフロアに限る）のみ実行できる。
  */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ floorId: string }> },
 ) {
+  const { member } = await getAuthContext();
+  if (!member || member.role !== "admin") {
+    return NextResponse.json({ error: "管理者のみ実行できます" }, { status: 403 });
+  }
+
   const { floorId } = await params;
 
-  const [floor] = await db.select().from(floors).where(eq(floors.id, floorId)).limit(1);
+  const [floor] = await db
+    .select({ id: floors.id, organizationId: buildings.organizationId })
+    .from(floors)
+    .innerJoin(buildings, eq(floors.buildingId, buildings.id))
+    .where(eq(floors.id, floorId))
+    .limit(1);
   if (!floor) {
     return NextResponse.json({ error: "指定されたフロアが見つかりません" }, { status: 404 });
+  }
+  if (floor.organizationId !== member.organizationId) {
+    return NextResponse.json({ error: "他組織のフロアは操作できません" }, { status: 403 });
   }
 
   const formData = await request.formData();
