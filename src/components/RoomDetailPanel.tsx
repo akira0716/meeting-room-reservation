@@ -2,7 +2,8 @@
 
 import { useActionState, useState } from "react";
 import { createReservationAction, type CreateReservationState } from "@/app/actions";
-import type { RoomWithReservations } from "@/lib/queries/getFloorMapData";
+import type { RoomReservation, RoomWithReservations } from "@/lib/queries/getFloorMapData";
+import { EditReservationForm } from "./EditReservationForm";
 
 const timeFormatter = new Intl.DateTimeFormat("ja-JP", {
   hour: "2-digit",
@@ -17,6 +18,43 @@ function toDatetimeLocalValue(date: Date): string {
 }
 
 const initialState: CreateReservationState = { status: "idle" };
+
+function ReservationRow({ reservation }: { reservation: RoomReservation }) {
+  const [showEdit, setShowEdit] = useState(false);
+
+  if (showEdit) {
+    return (
+      <li>
+        {/* versionをkeyにすることで、他のユーザーの更新をrouter.refresh()で取り込んだ際に
+            フォームが最新の初期値で作り直される（useActionStateの状態もリセットされる） */}
+        <EditReservationForm
+          key={reservation.version}
+          reservation={reservation}
+          onClose={() => setShowEdit(false)}
+        />
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex items-center justify-between gap-2 rounded border border-black/5 bg-neutral-50 px-2 py-1 text-sm dark:border-white/5 dark:bg-neutral-800">
+      <div>
+        <span className="font-mono text-xs text-neutral-500">
+          {timeFormatter.format(reservation.startAt)}–{timeFormatter.format(reservation.endAt)}
+        </span>{" "}
+        <span className="font-medium">{reservation.title}</span>
+        <span className="text-neutral-500">（{reservation.bookerName}）</span>
+      </div>
+      <button
+        type="button"
+        onClick={() => setShowEdit(true)}
+        className="shrink-0 text-xs text-neutral-500 underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200"
+      >
+        編集
+      </button>
+    </li>
+  );
+}
 
 function BookingForm({ roomId, onClose }: { roomId: string; onClose: () => void }) {
   const [state, formAction] = useActionState(createReservationAction, initialState);
@@ -135,16 +173,7 @@ export function RoomDetailPanel({ room }: { room: RoomWithReservations }) {
       ) : (
         <ul className="mt-1 space-y-1">
           {room.reservations.map((r) => (
-            <li
-              key={r.id}
-              className="rounded border border-black/5 bg-neutral-50 px-2 py-1 text-sm dark:border-white/5 dark:bg-neutral-800"
-            >
-              <span className="font-mono text-xs text-neutral-500">
-                {timeFormatter.format(r.startAt)}–{timeFormatter.format(r.endAt)}
-              </span>{" "}
-              <span className="font-medium">{r.title}</span>
-              <span className="text-neutral-500">（{r.bookerName}）</span>
-            </li>
+            <ReservationRow key={r.id} reservation={r} />
           ))}
         </ul>
       )}

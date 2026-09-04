@@ -8,13 +8,17 @@ import type {
 
 /**
  * 予約の時間帯が既存の予約と重複している、または楽観ロックの競合が発生したときに投げる。
- * どちらも「ユーザーに再入力・再読み込みを促す」という同じ対応になるため、呼び出し側は
- * このエラー型を見て競合用のフィードバックを出す。
+ * reasonで両者を区別できるようにしている：
+ * - "overlap"：時間帯の入力をやり直せばよい
+ * - "stale-version"：自分が編集を始めた後に他のユーザーが更新した。最新の内容を読み込み直す必要がある
  */
 export class ReservationConflictError extends Error {
-  constructor(message: string) {
+  readonly reason: "overlap" | "stale-version";
+
+  constructor(message: string, reason: "overlap" | "stale-version") {
     super(message);
     this.name = "ReservationConflictError";
+    this.reason = reason;
   }
 }
 
@@ -34,7 +38,7 @@ export async function createReservation(
   );
 
   if (hasConflict) {
-    throw new ReservationConflictError("指定の時間帯は既に他の予約と重複しています");
+    throw new ReservationConflictError("指定の時間帯は既に他の予約と重複しています", "overlap");
   }
 
   return repo.create(input);
@@ -67,13 +71,17 @@ export async function updateReservation(
     isOverlapping({ start: r.startAt, end: r.endAt }, { start: newStart, end: newEnd }),
   );
   if (hasConflict) {
-    throw new ReservationConflictError("変更後の時間帯は既に他の予約と重複しています");
+    throw new ReservationConflictError(
+      "変更後の時間帯は既に他の予約と重複しています",
+      "overlap",
+    );
   }
 
   const updated = await repo.updateWithVersion(id, expectedVersion, patch);
   if (!updated) {
     throw new ReservationConflictError(
       "他のユーザーによってこの予約は更新されています。最新の内容を読み込み直してください。",
+      "stale-version",
     );
   }
   return updated;
