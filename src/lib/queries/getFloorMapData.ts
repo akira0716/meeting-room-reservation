@@ -1,6 +1,7 @@
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { db } from "../db/client";
 import { buildings, floors, organizations, reservations, rooms } from "../db/schema";
+import { getFloorPlanImageUrl } from "../supabase/publicClient";
 
 export type RoomReservation = {
   id: string;
@@ -28,6 +29,9 @@ export type FloorWithRooms = {
   floorNumber: number;
   label: string | null;
   rooms: RoomWithReservations[];
+  floorPlanImageUrl: string | null;
+  floorPlanImageWidth: number | null;
+  floorPlanImageHeight: number | null;
 };
 
 export type FloorMapData = {
@@ -89,6 +93,11 @@ export async function getFloorMapData(): Promise<FloorMapData | null> {
       id: floor.id,
       floorNumber: floor.floorNumber,
       label: floor.label,
+      floorPlanImageUrl: floor.floorPlanImagePath
+        ? getFloorPlanImageUrl(floor.floorPlanImagePath)
+        : null,
+      floorPlanImageWidth: floor.floorPlanImageWidth,
+      floorPlanImageHeight: floor.floorPlanImageHeight,
       rooms: roomRows
         .filter((room) => room.floorId === floor.id)
         .map((room) => {

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { FloorMapData, RoomWithReservations } from "@/lib/queries/getFloorMapData";
+import { FloorPlanUploadForm } from "./FloorPlanUploadForm";
 import { RoomDetailPanel } from "./RoomDetailPanel";
 
 const PADDING = 24;
@@ -17,6 +18,10 @@ export function FloorMapView({ data }: { data: FloorMapData }) {
   const selectedFloor = data.floors.find((f) => f.id === selectedFloorId) ?? data.floors[0];
 
   const viewBox = useMemo(() => {
+    // フロア図（背景画像）があれば、座標系を画像のピクセルサイズに合わせる
+    if (selectedFloor?.floorPlanImageWidth && selectedFloor?.floorPlanImageHeight) {
+      return `0 0 ${selectedFloor.floorPlanImageWidth} ${selectedFloor.floorPlanImageHeight}`;
+    }
     if (!selectedFloor || selectedFloor.rooms.length === 0) {
       return `0 0 400 200`;
     }
@@ -51,11 +56,23 @@ export function FloorMapView({ data }: { data: FloorMapData }) {
         ))}
       </div>
 
+      {selectedFloor && <FloorPlanUploadForm floorId={selectedFloor.id} />}
+
       <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr]">
         <svg
           viewBox={viewBox}
           className="w-full rounded-lg border border-black/10 bg-neutral-50 dark:border-white/10 dark:bg-neutral-950"
         >
+          {selectedFloor?.floorPlanImageUrl && (
+            <image
+              href={selectedFloor.floorPlanImageUrl}
+              x={0}
+              y={0}
+              width={selectedFloor.floorPlanImageWidth ?? undefined}
+              height={selectedFloor.floorPlanImageHeight ?? undefined}
+              preserveAspectRatio="xMidYMid slice"
+            />
+          )}
           {selectedFloor?.rooms.map((room) => (
             <g
               key={room.id}
@@ -68,6 +85,7 @@ export function FloorMapView({ data }: { data: FloorMapData }) {
                 width={room.width}
                 height={room.height}
                 rx={6}
+                fillOpacity={selectedFloor?.floorPlanImageUrl ? 0.55 : 1}
                 className={
                   room.id === selectedRoomId
                     ? "stroke-2 stroke-neutral-900 dark:stroke-white"

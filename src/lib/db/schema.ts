@@ -39,6 +39,11 @@ export const floors = pgTable("floors", {
     .notNull(),
   floorNumber: integer("floor_number").notNull(),
   label: text("label"),
+  // 背景として表示するフロア図（Supabase Storageのオブジェクトパス）。未設定ならフロア図なしで表示する
+  floorPlanImagePath: text("floor_plan_image_path"),
+  // フロア図の元画像サイズ（px）。SVGのviewBoxを画像に合わせて座標系を一致させるために使う
+  floorPlanImageWidth: integer("floor_plan_image_width"),
+  floorPlanImageHeight: integer("floor_plan_image_height"),
 });
 
 /**

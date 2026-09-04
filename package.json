@@ -10,10 +10,13 @@
     "test": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "db:seed": "tsx --env-file=.env src/lib/db/seed.ts"
+    "db:seed": "tsx --env-file=.env src/lib/db/seed.ts",
+    "storage:setup": "tsx --env-file=.env src/lib/db/setupStorage.ts"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.115.0",
     "drizzle-orm": "^0.45.2",
+    "image-size": "^2.0.2",
     "next": "16.3.4",
     "postgres": "^3.4.9",
     "react": "19.2.8",
