@@ -5,9 +5,10 @@
 ## 優先度：高
 
 ### デプロイ（ポートフォリオとして公開するために必須）
-- [ ] Vercelへデプロイ
-- [ ] 環境変数（`DATABASE_URL` / `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`）をVercel側に設定
-- [ ] デプロイ後の動作確認（フロアマップ表示・予約作成・重複エラー）
+- [x] Vercelへデプロイ：https://meeting-room-reservation-theta.vercel.app/login
+- [x] 環境変数（`DATABASE_URL` / `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` / `SUPABASE_SECRET_KEY`）をVercel側に設定
+- [x] デプロイ後の動作確認（サインイン→フロアマップ表示まで確認済み）
+- [x] `@types/node`のバージョン不整合でVercelビルドが失敗する問題を修正（ローカルの`--legacy-peer-deps`頼みだった箇所を根本修正）
 
 ### 認証・認可（設計は[README.md](./README.md#3-設計判断)で整理済み。上流設計の見せ場として実装した）
 - [x] Supabase Authのセットアップ（初回：マジックリンク→パスワード設定／2回目以降：メール+パスワード）
