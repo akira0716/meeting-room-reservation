@@ -1,7 +1,10 @@
 "use server";
 
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getAuthContext } from "@/lib/auth/getAuthContext";
+import { db } from "@/lib/db/client";
+import { rooms } from "@/lib/db/schema";
 import { DrizzleReservationRepository } from "@/lib/repositories/drizzleReservationRepository";
 import {
   createReservation,
@@ -154,4 +157,27 @@ export async function deleteReservationAction(
 
   revalidatePath("/");
   return { status: "success" };
+}
+
+/**
+ * フロア編集モードで会議室をドラッグ移動したときに位置を保存する。
+ * フォームに紐づかない直接呼び出し用のServer Action（管理者のみ）。
+ */
+export async function updateRoomPositionAction(
+  roomId: string,
+  positionX: number,
+  positionY: number,
+): Promise<{ error?: string }> {
+  const { member } = await getAuthContext();
+  if (!member || member.role !== "admin") {
+    return { error: "管理者のみ会議室を移動できます" };
+  }
+
+  await db
+    .update(rooms)
+    .set({ positionX: Math.round(positionX), positionY: Math.round(positionY) })
+    .where(eq(rooms.id, roomId));
+
+  revalidatePath("/");
+  return {};
 }
