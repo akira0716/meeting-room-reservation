@@ -3,11 +3,13 @@ import { createBrowserClient } from "@supabase/ssr";
 /**
  * クライアントコンポーネントから使うSupabaseクライアント（Googleサインインなどに使用）。
  *
- * cookieOptionsを明示しているのは、Google OAuthのようにGoogle→Supabase→自アプリと
- * 複数ドメインをまたいでリダイレクトが返ってくるフローで、PKCEのcode_verifierを
- * 保存したCookieが最終リダイレクト時に送信されない問題（SameSite=Strictだと
- * クロスサイトのトップレベルナビゲーションでCookieが送られない）を避けるため。
- * SameSite=Laxならトップレベルの遷移（リダイレクト含む）ではCookieが送信される。
+ * cookieOptionsを明示しているのは2点対策するため：
+ * 1. SameSite=Lax：Google OAuthはGoogle→Supabase→自アプリと複数ドメインをまたいで
+ *    リダイレクトが返ってくる。SameSite=Strict（デフォルト）だとクロスサイトの
+ *    トップレベルナビゲーションでCookieが送信されない
+ * 2. path="/"：明示しないと、Cookieを設定したページ（例: /login）にPathが
+ *    紐づいてしまい、別のページ（/auth/callback）からはブラウザに保存されていても
+ *    読み取れなくなる（PKCEのcode_verifierが見つからないエラーの原因になっていた）
  */
 export function createSupabaseBrowserClient() {
   return createBrowserClient(
@@ -16,6 +18,7 @@ export function createSupabaseBrowserClient() {
     {
       cookieOptions: {
         sameSite: "lax",
+        path: "/",
       },
     },
   );

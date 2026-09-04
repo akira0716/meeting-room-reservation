@@ -27,10 +27,10 @@ export async function createSupabaseAuthServerClient() {
           }
         },
       },
-      // browserClient.tsと同じ設定に揃える（Google OAuthのクロスドメインリダイレクトで
-      // CookieがSameSite=Strictだと送信されない問題を避けるため）
+      // browserClient.tsと同じ設定に揃える（詳細はそちらのコメント参照）
       cookieOptions: {
         sameSite: "lax",
+        path: "/",
       },
     },
   );
