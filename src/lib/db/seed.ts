@@ -1,0 +1,170 @@
+/**
+ * ポートフォリオ用のダミーデータ投入スクリプト。
+ * 実行: npm run db:seed
+ *
+ * 冪等にするため、実行のたびに関連テーブルを全削除してから投入し直す。
+ * 実在の会社のデータは一切使用しない。
+ */
+import { db } from "./client";
+import {
+  organizations,
+  buildings,
+  floors,
+  rooms,
+  reservations,
+  users,
+} from "./schema";
+
+async function main() {
+  console.log("既存データを削除しています...");
+  await db.delete(reservations);
+  await db.delete(rooms);
+  await db.delete(floors);
+  await db.delete(buildings);
+  await db.delete(users);
+  await db.delete(organizations);
+
+  console.log("組織・建物・フロアを投入しています...");
+  const [org] = await db
+    .insert(organizations)
+    .values({ name: "デモ株式会社" })
+    .returning();
+
+  const [building] = await db
+    .insert(buildings)
+    .values({ organizationId: org.id, name: "本社ビル" })
+    .returning();
+
+  const [floor3] = await db
+    .insert(floors)
+    .values({ buildingId: building.id, floorNumber: 3 })
+    .returning();
+
+  const [floor5] = await db
+    .insert(floors)
+    .values({ buildingId: building.id, floorNumber: 5 })
+    .returning();
+
+  console.log("管理者ユーザーを投入しています...");
+  await db.insert(users).values({
+    organizationId: org.id,
+    email: "admin@example.com",
+    name: "管理者（デモ）",
+    role: "admin",
+    status: "active",
+  });
+
+  console.log("会議室を投入しています...");
+  const [roomA, roomB, roomC] = await db
+    .insert(rooms)
+    .values([
+      {
+        floorId: floor3.id,
+        name: "会議室A",
+        positionX: 40,
+        positionY: 40,
+        width: 160,
+        height: 100,
+        capacity: 4,
+      },
+      {
+        floorId: floor3.id,
+        name: "会議室B",
+        positionX: 220,
+        positionY: 40,
+        width: 200,
+        height: 100,
+        capacity: 8,
+      },
+      {
+        floorId: floor3.id,
+        name: "会議室C",
+        positionX: 440,
+        positionY: 40,
+        width: 260,
+        height: 140,
+        capacity: 20,
+      },
+    ])
+    .returning();
+
+  const [roomD, roomE] = await db
+    .insert(rooms)
+    .values([
+      {
+        floorId: floor5.id,
+        name: "会議室D",
+        positionX: 40,
+        positionY: 40,
+        width: 180,
+        height: 100,
+        capacity: 6,
+      },
+      {
+        floorId: floor5.id,
+        name: "会議室E",
+        positionX: 240,
+        positionY: 40,
+        width: 220,
+        height: 120,
+        capacity: 12,
+      },
+    ])
+    .returning();
+
+  console.log("予約データを投入しています...");
+  const now = new Date();
+  const addMinutes = (base: Date, minutes: number) =>
+    new Date(base.getTime() + minutes * 60_000);
+
+  await db.insert(reservations).values([
+    // 今まさに使用中の予約（会議室A）→ デモ時に「使用中」表示を確認できる
+    {
+      roomId: roomA.id,
+      title: "定例ミーティング",
+      bookerName: "山田 太郎",
+      startAt: addMinutes(now, -15),
+      endAt: addMinutes(now, 45),
+    },
+    // 今日この後の予約（会議室B）
+    {
+      roomId: roomB.id,
+      title: "採用面接",
+      bookerName: "佐藤 花子",
+      startAt: addMinutes(now, 120),
+      endAt: addMinutes(now, 180),
+    },
+    // 明日の予約（会議室C）
+    {
+      roomId: roomC.id,
+      title: "全社キックオフ",
+      bookerName: "鈴木 一郎",
+      startAt: addMinutes(now, 24 * 60),
+      endAt: addMinutes(now, 24 * 60 + 90),
+    },
+    // 5F 会議室Dは終日空き（予約なし）
+    // 会議室Eは少し先に埋まっている
+    {
+      roomId: roomE.id,
+      title: "1on1",
+      bookerName: "田中 次郎",
+      startAt: addMinutes(now, 60),
+      endAt: addMinutes(now, 90),
+    },
+  ]);
+
+  console.log("シード完了。");
+  console.log({
+    organization: org.name,
+    building: building.name,
+    floors: [floor3.floorNumber, floor5.floorNumber],
+    rooms: [roomA, roomB, roomC, roomD, roomE].map((r) => r.name),
+  });
+}
+
+main()
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  })
+  .finally(() => process.exit(0));
