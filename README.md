@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# フロアマップ会議室予約（仮称）
 
-## Getting Started
+会議室の空き状況を「フロアマップ」上で視覚的に確認しながら、そのまま予約できるWebアプリ。
 
-First, run the development server:
+## 1. 課題発見の経緯
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+自社の会議室予約は普段Googleカレンダーで運用しており、空き日時や予約自体には特に不便を感じていない。一方で、**会議室の名前と物理的な位置が視覚的に結びついていない**ため、「〇〇会議室ってどこだっけ」と探すことがある。この不便を解決するために、カレンダーの予約データはそのままに、UI（フロアマップ）だけを追加で提供するアプリとして企画した。
+
+## 2. 要件定義・MVPスコープ
+
+- フロア図（矩形配置）に会議室を表示し、空き/使用中を色分け表示する
+- 会議室をクリックすると、当日のタイムスロット別予約状況を確認できる
+- 空いている時間帯を選んで、その場で予約を作成できる
+- 同じ時間帯への同時予約や、同じ予約への同時編集が競合しないよう制御する
+- スコープ外（今後の展望に回す）：実際のGoogle Calendar APIとの連携、部屋配置のドラッグ&ドロップ編集
+
+データはポートフォリオ用のダミーデータで完結させる（実在の会社の予約データは使用しない）。
+
+## 3. 設計判断
+
+### 排他制御（楽観ロック）
+予約の更新（時間変更など）に`version`カラムを持たせ、更新時に期待していたversionと現在のversionが一致する場合のみ更新を許可する。一致しなければ「他のユーザーが先に更新した」とみなし、競合エラーを返す（[`reservationService.ts`](./src/lib/services/reservationService.ts)）。
+
+新規予約作成時は、既存予約との時間帯重複を業務ロジック側でチェックする（[`reservationOverlap.ts`](./src/lib/services/reservationOverlap.ts)）。
+
+### 外部依存の抽象化
+DBアクセスは`ReservationRepository`インターフェース（[`reservationRepository.ts`](./src/lib/repositories/reservationRepository.ts)）越しにのみ行い、サービス層はSupabase/Postgresの実装詳細を知らない。テスト時は`InMemoryReservationRepository`に差し替えることで、実DBなしでビジネスロジックをテストできる。
+
+```
+app/api/.../route.ts      … 薄いコントローラ層
+lib/services/             … 業務ロジック（重複チェック・楽観ロック）
+lib/repositories/         … データアクセス（インターフェース＋実装の分離）
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 認証・認可
+- 認証はSupabase Auth（マジックリンク）に乗せ、パスワード管理は自前で行わない
+- 招待URL方式：管理者が管理ページから招待→招待された人がリンクを踏んでメール認証→組織に参加
+- 初期管理者はconfigファイルでシード（「最初の管理者を誰が招待するか」という鶏卵問題の解消）
+- 権限は管理者／一般メンバーの2段階
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 4. 技術スタック
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- フロントエンド／バックエンド：Next.js（App Router）+ TypeScript
+- DB：Supabase（PostgreSQL）、ORM：Drizzle
+- テスト：Vitest
+- デプロイ：Vercel
 
-## Learn More
+## 5. セットアップ
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm install
+cp .env.example .env   # SupabaseのDATABASE_URL等を設定
+npm run dev
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+テスト実行：
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run test
+```
 
-## Deploy on Vercel
+## 6. 今後の展望
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- 実際のGoogle Calendar APIとの連携（読み取り／書き込み）
+- フロアマップ上での会議室配置のドラッグ&ドロップ編集
+- 招待トークンの有効期限切れ・再送フロー
+- 部屋・機能単位のより細かい権限設定
