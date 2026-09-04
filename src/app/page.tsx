@@ -1,7 +1,5 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { FloorMapView } from "@/components/FloorMapView";
-import { LogoutButton } from "@/components/LogoutButton";
 import { getAuthContext } from "@/lib/auth/getAuthContext";
 import { getFloorMapData } from "@/lib/queries/getFloorMapData";
 
@@ -10,8 +8,17 @@ export const dynamic = "force-dynamic"; // 「今使用中か」やセッショ�
 export default async function Home() {
   const { authUser, member } = await getAuthContext();
 
+  // 【認証は設計をやり直すため一時的に無効化中】本来はここで !authUser なら /login へredirectしていた。
+  // 今はgetAuthContext()が常にシード済み管理者を返すためauthUserがnullになることはないが、
+  // 万一usersテーブルに管理者が1件もない場合はこのメッセージを出す。
   if (!authUser) {
-    redirect("/login");
+    return (
+      <main className="mx-auto max-w-md px-6 py-16">
+        <p className="text-sm text-neutral-500">
+          管理者ユーザーが見つかりません。<code>npm run auth:seed-admins</code> を実行してください。
+        </p>
+      </main>
+    );
   }
   if (!member) {
     return (
@@ -52,7 +59,6 @@ export default async function Home() {
               メンバー招待
             </Link>
           )}
-          <LogoutButton />
         </div>
       </header>
       <FloorMapView data={data} isAdmin={member.role === "admin"} />

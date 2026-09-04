@@ -1,7 +1,6 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "../db/client";
 import { users } from "../db/schema";
-import { createSupabaseAuthServerClient } from "../supabase/serverAuthClient";
 
 export type OrgMember = {
   id: string;
@@ -20,50 +19,26 @@ export type AuthContext = {
 };
 
 /**
- * 現在のリクエストのSupabase Authセッションと、users テーブルの組織メンバー情報を突き合わせる。
+ * 【認証・認可は設計をやり直すため一時的に無効化中】
  *
- * - 未サインイン → { authUser: null, member: null }
- * - サインイン済みで、authUserIdが一致するusers行がある → そのまま返す
- * - サインイン済みで、authUserIdはまだ紐づいていないが、同じメールアドレスのusers行がある
- *   （管理者のconfigシード直後、または招待受諾直後）→ このタイミングで紐付けてactiveにする
- * - どちらにも該当しない（招待されていないメールアドレスでサインインした）→ member: null
+ * 本来はSupabase Authのセッションとusersテーブルを突き合わせて認可判定していたが
+ * （実装は git log の 64cad7f 時点を参照）、招待メールのリダイレクト設計を含めて
+ * 認証方式自体を設計からやり直すことになったため、一旦すべてのアクセスを
+ * 「seed-admins.jsonでシードされた管理者」として扱うダミー実装に差し替えている。
+ *
+ * 呼び出し側（各Server Action・APIルート）のインターフェースは変えていないので、
+ * このファイルだけを本来のSupabase Auth連携実装に戻せば認可チェックは復活する。
+ * TASKS.mdの「認証・認可の再設計」を参照。
  */
 export async function getAuthContext(): Promise<AuthContext> {
-  const supabase = await createSupabaseAuthServerClient();
-  const {
-    data: { user: authUser },
-  } = await supabase.auth.getUser();
+  const [admin] = await db.select().from(users).where(eq(users.role, "admin")).limit(1);
 
-  if (!authUser || !authUser.email) {
+  if (!admin) {
     return { authUser: null, member: null };
   }
 
-  const authUserInfo = { id: authUser.id, email: authUser.email };
-
-  const [byAuthId] = await db
-    .select()
-    .from(users)
-    .where(eq(users.authUserId, authUser.id))
-    .limit(1);
-  if (byAuthId) {
-    return { authUser: authUserInfo, member: byAuthId };
-  }
-
-  const [byEmail] = await db
-    .select()
-    .from(users)
-    .where(and(eq(users.email, authUser.email), isNull(users.authUserId)))
-    .limit(1);
-
-  if (!byEmail) {
-    return { authUser: authUserInfo, member: null };
-  }
-
-  const [linked] = await db
-    .update(users)
-    .set({ authUserId: authUser.id, status: "active" })
-    .where(eq(users.id, byEmail.id))
-    .returning();
-
-  return { authUser: authUserInfo, member: linked };
+  return {
+    authUser: { id: admin.authUserId ?? admin.id, email: admin.email },
+    member: admin,
+  };
 }

@@ -11,6 +11,7 @@
 - [x] `@types/node`のバージョン不整合でVercelビルドが失敗する問題を修正（ローカルの`--legacy-peer-deps`頼みだった箇所を根本修正）
 
 ### 認証・認可（設計は[README.md](./README.md#3-設計判断)で整理済み。上流設計の見せ場として実装した）
+- [ ] **現在、認証を設計からやり直し中**：招待メールのリダイレクト不具合とGoogle認証移行の失敗（PKCE code verifier not found）を受けて、認証方式自体を再検討する。それまでの間、`getAuthContext()`（[getAuthContext.ts](./src/lib/auth/getAuthContext.ts)）はSupabase Authを見ず、シード済み管理者を常に返すダミー実装にして認可の壁を一時的に外している（他機能はそのまま動作確認済み）
 - [x] Supabase Authのセットアップ（初回：メールリンク→パスワード設定／2回目以降：メール+パスワード）
 - [x] 招待発行API・管理ページ（`/admin/invitations`、管理者が招待メールアドレス＋roleを指定）
 - [x] 招待メールの自動送信（`auth.admin.inviteUserByEmail`）。旧・自前トークン方式(`/invite/[token]`)は廃止し、`invitations`テーブルも削除
