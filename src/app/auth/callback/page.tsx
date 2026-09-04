@@ -2,15 +2,17 @@ import { Suspense } from "react";
 import { AuthCallbackHandler } from "@/components/AuthCallbackHandler";
 
 /**
- * マジックリンク／招待リンクのクリック後に戻ってくるコールバックページ。
+ * OAuth（Googleサインイン）のリダイレクト後に戻ってくるコールバックページ。
  *
- * Supabaseが発行するリンクには2パターンある：
- * 1. ブラウザから signInWithOtp() を呼んで届いたメール（自分でパスワード再設定等をした場合）
- *    → 認証情報は "?code=..." というクエリ文字列で返ってくる（PKCEフロー）
- * 2. サーバー側の管理API（inviteUserByEmail / generateLink）で発行したメール
- *    → 認証情報は "#access_token=...&refresh_token=..." というURLのハッシュ部分で返ってくる
- *      （ハッシュはブラウザからサーバーに送信されないため、サーバー側のRoute Handlerでは
- *      検知できず、クライアント側のJavaScriptで読み取る必要がある）
+ * ブラウザから signInWithOAuth() を呼んで開始したフローは、Google認証後に
+ * "?code=..." というクエリ文字列付きで戻ってくる（PKCEフロー）。
+ *
+ * それとは別に、Supabaseの管理API（generateLink等）で発行したリンクは
+ * "#access_token=...&refresh_token=..." というURLのハッシュ部分で認証情報が返る
+ * パターンもある（ハッシュはブラウザからサーバーに送信されないため、サーバー側の
+ * Route Handlerでは検知できず、クライアント側のJavaScriptで読み取る必要がある）。
+ * このアプリでは現在ユーザー向けの導線としては使っていないが、開発時の動作確認
+ * （メール送信を伴わないリンク発行）で使うため、両方に対応させている。
  *
  * 両方に対応するため、このページはクライアントコンポーネントとして実装している。
  */
