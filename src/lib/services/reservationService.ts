@@ -86,3 +86,21 @@ export async function updateReservation(
   }
   return updated;
 }
+
+/**
+ * 既存予約を削除する。更新と同じく楽観ロックで、自分が読み込んだ時点から
+ * 他のユーザーに更新/削除されていないかをチェックする。
+ */
+export async function deleteReservation(
+  repo: ReservationRepository,
+  id: string,
+  expectedVersion: number,
+): Promise<void> {
+  const deleted = await repo.deleteWithVersion(id, expectedVersion);
+  if (!deleted) {
+    throw new ReservationConflictError(
+      "他のユーザーによってこの予約は更新/削除されています。最新の内容を読み込み直してください。",
+      "stale-version",
+    );
+  }
+}

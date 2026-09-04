@@ -33,4 +33,9 @@ export interface ReservationRepository {
     expectedVersion: number,
     patch: ReservationPatch,
   ): Promise<Reservation | null>;
+  /**
+   * 楽観ロック付きの削除。expectedVersionが現在のversionと一致する場合のみ削除する。
+   * 一致しない（＝他のユーザーが先に更新/削除した）場合はfalseを返す。
+   */
+  deleteWithVersion(id: string, expectedVersion: number): Promise<boolean>;
 }

@@ -6,6 +6,7 @@ import { DrizzleReservationRepository } from "@/lib/repositories/drizzleReservat
 import {
   createReservation,
   updateReservation,
+  deleteReservation,
   ReservationConflictError,
 } from "@/lib/services/reservationService";
 
@@ -17,6 +18,11 @@ export type CreateReservationState =
 export type UpdateReservationState =
   | { status: "idle" }
   | { status: "error"; message: string; reason?: "overlap" | "stale-version" }
+  | { status: "success" };
+
+export type DeleteReservationState =
+  | { status: "idle" }
+  | { status: "error"; message: string; reason?: "stale-version" }
   | { status: "success" };
 
 type ParsedReservationFields =
@@ -110,6 +116,38 @@ export async function updateReservationAction(
   } catch (err) {
     if (err instanceof ReservationConflictError) {
       return { status: "error", message: err.message, reason: err.reason };
+    }
+    throw err;
+  }
+
+  revalidatePath("/");
+  return { status: "success" };
+}
+
+/**
+ * 既存予約を削除するServer Action。更新と同じく楽観ロックの競合を検出する。
+ */
+export async function deleteReservationAction(
+  _prevState: DeleteReservationState,
+  formData: FormData,
+): Promise<DeleteReservationState> {
+  const { member } = await getAuthContext();
+  if (!member) {
+    return { status: "error", message: "サインインしている組織メンバーのみ削除できます" };
+  }
+
+  const id = String(formData.get("id") ?? "");
+  const expectedVersion = Number(formData.get("version"));
+  if (!id || Number.isNaN(expectedVersion)) {
+    return { status: "error", message: "削除対象の予約が特定できません" };
+  }
+
+  const repo = new DrizzleReservationRepository();
+  try {
+    await deleteReservation(repo, id, expectedVersion);
+  } catch (err) {
+    if (err instanceof ReservationConflictError) {
+      return { status: "error", message: err.message, reason: "stale-version" };
     }
     throw err;
   }

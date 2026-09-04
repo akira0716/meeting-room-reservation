@@ -52,4 +52,17 @@ export class DrizzleReservationRepository implements ReservationRepository {
       .returning();
     return rows[0] ?? null;
   }
+
+  async deleteWithVersion(id: string, expectedVersion: number): Promise<boolean> {
+    const rows = await db
+      .delete(reservationsTable)
+      .where(
+        and(
+          eq(reservationsTable.id, id),
+          eq(reservationsTable.version, expectedVersion),
+        ),
+      )
+      .returning({ id: reservationsTable.id });
+    return rows.length > 0;
+  }
 }

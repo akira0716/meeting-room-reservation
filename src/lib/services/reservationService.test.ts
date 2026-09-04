@@ -3,6 +3,7 @@ import { InMemoryReservationRepository } from "../repositories/inMemoryReservati
 import {
   createReservation,
   updateReservation,
+  deleteReservation,
   ReservationConflictError,
 } from "./reservationService";
 import type { Reservation } from "../repositories/reservationRepository";
@@ -108,5 +109,35 @@ describe("updateReservation（楽観ロック）", () => {
       expect(err).toBeInstanceOf(ReservationConflictError);
       expect((err as ReservationConflictError).reason).toBe("overlap");
     }
+  });
+});
+
+describe("deleteReservation（楽観ロック）", () => {
+  it("最新のversionで削除すれば予約が消える", async () => {
+    const repo = new InMemoryReservationRepository([makeExistingReservation()]);
+
+    await deleteReservation(repo, "res-existing", 1);
+
+    expect(await repo.findById("res-existing")).toBeNull();
+  });
+
+  it("古いversionで削除しようとすると reason:stale-version の競合エラーになり、削除されない", async () => {
+    const repo = new InMemoryReservationRepository([makeExistingReservation()]);
+
+    // Aさんが先に更新（version: 1 → 2）
+    await updateReservation(repo, "res-existing", 1, { title: "Aさんによる変更" });
+
+    // Bさんは古いversion(1)のまま削除しようとする → 競合エラー
+    try {
+      await deleteReservation(repo, "res-existing", 1);
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(ReservationConflictError);
+      expect((err as ReservationConflictError).reason).toBe("stale-version");
+    }
+
+    // 削除されずAさんの変更が残っている
+    const current = await repo.findById("res-existing");
+    expect(current?.title).toBe("Aさんによる変更");
   });
 });

@@ -56,4 +56,16 @@ export class InMemoryReservationRepository implements ReservationRepository {
     this.reservations[index] = updated;
     return updated;
   }
+
+  async deleteWithVersion(id: string, expectedVersion: number): Promise<boolean> {
+    const index = this.reservations.findIndex((r) => r.id === id);
+    if (index === -1) return false;
+
+    if (this.reservations[index].version !== expectedVersion) {
+      return false;
+    }
+
+    this.reservations.splice(index, 1);
+    return true;
+  }
 }
