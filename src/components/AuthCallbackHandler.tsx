@@ -1,23 +1,27 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browserClient";
 
 export function AuthCallbackHandler() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
+  // Reactの開発モードはeffectを意図的に2回実行するため、ここでガードしないと
+  // 1回目でコード(1回限り有効)を使い切り、2回目が「既に使われたコード」で失敗してしまう。
+  const hasRunRef = useRef(false);
 
   useEffect(() => {
-    let cancelled = false;
+    if (hasRunRef.current) return;
+    hasRunRef.current = true;
 
     async function run() {
       const supabase = createSupabaseBrowserClient();
       const next = searchParams.get("next") ?? "/";
 
       // パターン1：URLのハッシュにaccess_token/refresh_tokenが含まれる場合
-      // （inviteUserByEmail / generateLinkなど、サーバー側で発行したリンク）
+      // （generateLinkなど、サーバー側で発行したリンク）
       const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
       const accessToken = hashParams.get("access_token");
       const refreshToken = hashParams.get("refresh_token");
@@ -26,33 +30,26 @@ export function AuthCallbackHandler() {
           access_token: accessToken,
           refresh_token: refreshToken,
         });
-        if (cancelled) return;
         if (!error) {
           router.replace(next);
           return;
         }
       }
 
-      // パターン2：?code= が含まれる場合（signInWithOtp経由のPKCEフロー）
+      // パターン2：?code= が含まれる場合（signInWithOAuth等のPKCEフロー）
       const code = searchParams.get("code");
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
-        if (cancelled) return;
         if (!error) {
           router.replace(next);
           return;
         }
       }
 
-      if (!cancelled) {
-        setError("サインインに失敗しました。リンクの有効期限が切れている可能性があります。");
-      }
+      setError("サインインに失敗しました。リンクの有効期限が切れている可能性があります。");
     }
 
     run();
-    return () => {
-      cancelled = true;
-    };
   }, [router, searchParams]);
 
   if (error) {
