@@ -24,6 +24,11 @@ export async function proxy(request: NextRequest) {
           });
         },
       },
+      // browserClient.ts / serverAuthClient.tsと同じ設定に揃える（Google OAuthの
+      // クロスドメインリダイレクトでCookieがSameSite=Strictだと送信されない問題を避けるため）
+      cookieOptions: {
+        sameSite: "lax",
+      },
     },
   );
 
