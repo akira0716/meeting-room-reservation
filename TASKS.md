@@ -5,7 +5,8 @@
 ## 優先度：高
 
 ### セキュリティ（マルチテナント化に伴い発見）
-- [ ] `createReservationAction`/`updateReservationAction`/`deleteReservationAction`（[actions.ts](./src/app/actions.ts)）が、対象の会議室・予約が操作者の所属組織のものかを検証していない。組織が1つしかなかった頃は問題が表面化しなかったが、複数組織が存在する今は、他組織のroomId/予約IDを直接指定されると操作できてしまう可能性がある。`saveFloorLayoutAction`・フロア図アップロードAPIと同じ「組織所有チェック」パターンを追加する必要がある
+- [x] `createReservationAction`/`updateReservationAction`/`deleteReservationAction`（[actions.ts](./src/app/actions.ts)）が、対象の会議室・予約が操作者の所属組織のものかを検証していない。組織が1つしかなかった頃は問題が表面化しなかったが、複数組織が存在する今は、他組織のroomId/予約IDを直接指定されると操作できてしまう可能性がある。`saveFloorLayoutAction`・フロア図アップロードAPIと同じ「組織所有チェック」パターンを追加する必要がある
+  - `isRoomInOrganization`（rooms→floors→buildings）・`isReservationInOrganization`（reservations→rooms→floors→buildings）を追加し、3つのActionそれぞれで書き込み前に検証するよう修正。テストはDB結合が必要でこのリポジトリに結合テストの仕組みがまだ無いため追加せず（`saveFloorLayoutAction`の既存の組織所有チェックにもテストが無いのと同様）。tsc/eslint/vitest/buildはすべて成功を確認済み
 
 ### デプロイ（ポートフォリオとして公開するために必須）
 - [x] Vercelへデプロイ：https://meeting-room-reservation-theta.vercel.app/login
@@ -70,6 +71,7 @@
   - フロア図画像のスクロールコンテナは、見た目のスクロールバーを`no-scrollbar`ユーティリティ（`globals.css`）で非表示にした（スクロール自体は有効なまま）
   - スクロール追従は自動テスト環境（プログラムによる`scrollLeft`代入は`scroll`イベントが発火しないため）では検証しきれなかったが、実機で動作確認済み
 - [x] **フロア図画像の自動リサイズ**（`feature/floor-plan-resize`ブランチ）：長辺が1920pxを超える画像はアップロード時にsharpで自動縮小するようにした（縦横比維持、拡大はしない）。既存の会議室がある状態で画像サイズが変わる差し替えの場合、差し替え前後のサイズ比で全会議室の位置・サイズを比例配分して補正する。`image-size`パッケージはsharpに一本化して削除。実際に3Fの本番データ（3840×2160→1920×1080）で動作確認済み（既存4会議室の座標がすべて正確に半分になることを確認）
+- [x] **バグ修正**：画像を差し替える（再アップロードする）たびに新しいタイムスタンプ付きパスで保存する一方、旧パスの画像がSupabase Storageに残り続け、ゴミが溜まり続けていた（自動リサイズの導入で再アップロードが増えたことで顕在化）。組織所有チェック用に取得済みのフロア行に`floorPlanImagePath`を含めて差し替え前のパスを取得しておき、新画像のアップロード＋DBトランザクションが成功した後にベストエフォートで`supabase.storage.from(BUCKET).remove([oldPath])`により旧ファイルを削除するようにした（削除失敗はログのみでレスポンスには影響させない）
 
 ## 優先度：低（余力があれば）
 

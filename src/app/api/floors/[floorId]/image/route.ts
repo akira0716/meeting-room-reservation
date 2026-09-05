@@ -38,6 +38,7 @@ export async function POST(
       organizationId: buildings.organizationId,
       prevWidth: floors.floorPlanImageWidth,
       prevHeight: floors.floorPlanImageHeight,
+      prevPath: floors.floorPlanImagePath,
     })
     .from(floors)
     .innerJoin(buildings, eq(floors.buildingId, buildings.id))
@@ -143,6 +144,16 @@ export async function POST(
       }
     }
   });
+
+  // 差し替え前の古い画像はストレージに残り続けるとゴミになるため削除する。
+  // 新しい画像は既にDBに反映済みでレスポンスもこれから返すため、削除の失敗で
+  // リクエスト自体を失敗させず、ベストエフォートで行う（ログのみ残す）。
+  if (floor.prevPath && floor.prevPath !== objectPath) {
+    const { error: removeError } = await supabase.storage.from(BUCKET).remove([floor.prevPath]);
+    if (removeError) {
+      console.error("古いフロア図画像の削除に失敗しました:", removeError);
+    }
+  }
 
   revalidatePath("/");
 
