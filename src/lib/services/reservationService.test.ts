@@ -15,7 +15,8 @@ function makeExistingReservation(overrides: Partial<Reservation> = {}): Reservat
     id: "res-existing",
     roomId: ROOM_ID,
     title: "既存の予約",
-    bookerName: "山田",
+    createdByUserId: "user-yamada",
+    note: null,
     startAt: new Date("2026-09-10T10:00"),
     endAt: new Date("2026-09-10T11:00"),
     version: 1,
@@ -31,7 +32,8 @@ describe("createReservation", () => {
       await createReservation(repo, {
         roomId: ROOM_ID,
         title: "新しい予約",
-        bookerName: "佐藤",
+        createdByUserId: "user-sato",
+        note: null,
         startAt: new Date("2026-09-10T10:30"),
         endAt: new Date("2026-09-10T11:30"),
       });
@@ -48,7 +50,8 @@ describe("createReservation", () => {
     const created = await createReservation(repo, {
       roomId: ROOM_ID,
       title: "新しい予約",
-      bookerName: "佐藤",
+      createdByUserId: "user-sato",
+      note: null,
       startAt: new Date("2026-09-10T11:00"),
       endAt: new Date("2026-09-10T12:00"),
     });

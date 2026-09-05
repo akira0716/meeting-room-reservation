@@ -93,7 +93,11 @@ export const users = pgTable(
 
 /**
  * 予約。versionは楽観ロック用（更新時にversionが一致しない場合は競合エラーとする）。
- * bookerName: 予約者名（会議の主催者とは限らないため organizerName ではなく bookerName とする）
+ *
+ * 予約者は自由入力（旧bookerName）ではなく、作成時のログイン中ユーザーで固定する。
+ * createdByUserIdはnullable：ユーザーが組織から削除された後もこの予約自体（＝その時間は
+ * 使用中という情報）は残したいため、onDelete: cascadeではなくset nullにしている
+ * （表示側は予約者不明として扱う）。
  */
 export const reservations = pgTable("reservations", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -101,7 +105,11 @@ export const reservations = pgTable("reservations", {
     .references(() => rooms.id, { onDelete: "cascade" })
     .notNull(),
   title: text("title").notNull(),
-  bookerName: text("booker_name").notNull(),
+  createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  // 予約者名の自由入力欄を廃止した代わりに設けた、任意の備考欄（URL等も入力可）
+  note: text("note"),
   startAt: timestamp("start_at", { withTimezone: true }).notNull(),
   endAt: timestamp("end_at", { withTimezone: true }).notNull(),
   version: integer("version").notNull().default(1),

@@ -1,13 +1,22 @@
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { toDateKey } from "../dateKey";
 import { db } from "../db/client";
-import { buildings, floors, organizations, reservations, rooms } from "../db/schema";
+import { buildings, floors, organizations, reservations, rooms, users } from "../db/schema";
 import { getFloorPlanImageUrl } from "../supabase/publicClient";
+
+/** 予約者の氏名・メールアドレスがどちらも取得できない場合のフォールバック表示
+ *  （予約者アカウントが組織から削除された、またはユーザー紐付け導入前の予約データ） */
+const UNKNOWN_BOOKER_LABEL = "予約者不明";
 
 export type RoomReservation = {
   id: string;
   title: string;
+  /** 表示用の予約者名（氏名優先、無ければメールアドレス、それも無ければUNKNOWN_BOOKER_LABEL） */
   bookerName: string;
+  /** 予約作成時のユーザーID。ログイン中ユーザー本人の予約かどうかの判定に使う（削除済みならnull） */
+  createdByUserId: string | null;
+  /** 任意の備考欄 */
+  note: string | null;
   startAt: Date;
   endAt: Date;
   version: number;
@@ -87,10 +96,23 @@ export async function getFloorMapData(
   const endOfDay = new Date(targetDate);
   endOfDay.setHours(23, 59, 59, 999);
 
+  // 予約者名の表示用に、作成者のusers行をleft joinで引く（削除済み・未設定ならnullのまま）
   const reservationRows = roomIds.length
     ? await db
-        .select()
+        .select({
+          id: reservations.id,
+          roomId: reservations.roomId,
+          title: reservations.title,
+          note: reservations.note,
+          createdByUserId: reservations.createdByUserId,
+          bookerName: users.name,
+          bookerEmail: users.email,
+          startAt: reservations.startAt,
+          endAt: reservations.endAt,
+          version: reservations.version,
+        })
         .from(reservations)
+        .leftJoin(users, eq(reservations.createdByUserId, users.id))
         .where(
           and(
             inArray(reservations.roomId, roomIds),
@@ -117,9 +139,19 @@ export async function getFloorMapData(
       rooms: roomRows
         .filter((room) => room.floorId === floor.id)
         .map((room) => {
-          const roomReservations = reservationRows
+          const roomReservations: RoomReservation[] = reservationRows
             .filter((res) => res.roomId === room.id)
-            .sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
+            .sort((a, b) => a.startAt.getTime() - b.startAt.getTime())
+            .map((res) => ({
+              id: res.id,
+              title: res.title,
+              note: res.note,
+              createdByUserId: res.createdByUserId,
+              bookerName: res.bookerName ?? res.bookerEmail ?? UNKNOWN_BOOKER_LABEL,
+              startAt: res.startAt,
+              endAt: res.endAt,
+              version: res.version,
+            }));
           const isOccupiedNow =
             isToday && roomReservations.some((res) => res.startAt <= now && now < res.endAt);
           return { ...room, reservations: roomReservations, isOccupiedNow };

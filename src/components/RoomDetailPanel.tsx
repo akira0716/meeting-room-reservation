@@ -37,6 +37,9 @@ function ReservationRow({ reservation }: { reservation: RoomReservation }) {
         </span>{" "}
         <span className="font-medium">{reservation.title}</span>
         <span className="text-neutral-500">（{reservation.bookerName}）</span>
+        {reservation.note && (
+          <p className="text-xs text-neutral-400">{reservation.note}</p>
+        )}
       </div>
       <button
         type="button"
@@ -91,10 +94,10 @@ function BookingForm({
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-neutral-500">予約者名</label>
-        <input
-          name="bookerName"
-          required
+        <label className="block text-xs font-medium text-neutral-500">備考（任意・URLも可）</label>
+        <textarea
+          name="note"
+          rows={2}
           className="mt-0.5 w-full rounded border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/10"
         />
       </div>

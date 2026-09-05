@@ -68,17 +68,17 @@ export type DeleteReservationState =
   | { status: "success" };
 
 type ParsedReservationFields =
-  | { ok: true; title: string; bookerName: string; startAt: Date; endAt: Date }
+  | { ok: true; title: string; note: string | null; startAt: Date; endAt: Date }
   | { ok: false; message: string };
 
 function parseReservationFields(formData: FormData): ParsedReservationFields {
   const title = String(formData.get("title") ?? "").trim();
-  const bookerName = String(formData.get("bookerName") ?? "").trim();
+  const note = String(formData.get("note") ?? "").trim();
   const startAt = new Date(String(formData.get("startAt") ?? ""));
   const endAt = new Date(String(formData.get("endAt") ?? ""));
 
-  if (!title || !bookerName) {
-    return { ok: false, message: "会議名・予約者名を入力してください" };
+  if (!title) {
+    return { ok: false, message: "会議名を入力してください" };
   }
   if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) {
     return { ok: false, message: "開始・終了時刻を正しく入力してください" };
@@ -87,7 +87,7 @@ function parseReservationFields(formData: FormData): ParsedReservationFields {
     return { ok: false, message: "終了時刻は開始時刻より後にしてください" };
   }
 
-  return { ok: true, title, bookerName, startAt, endAt };
+  return { ok: true, title, note: note || null, startAt, endAt };
 }
 
 /**
@@ -121,7 +121,8 @@ export async function createReservationAction(
 
   const repo = new DrizzleReservationRepository();
   try {
-    await createReservation(repo, { roomId, ...fields });
+    // 予約者はクライアントからの入力を一切信用せず、サーバー側でログイン中のユーザーに固定する
+    await createReservation(repo, { roomId, createdByUserId: member.id, ...fields });
   } catch (err) {
     if (err instanceof ReservationConflictError) {
       return { status: "error", message: err.message };
