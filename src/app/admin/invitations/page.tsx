@@ -4,7 +4,6 @@ import { getAuthContext } from "@/lib/auth/getAuthContext";
 import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 import { CreateInvitationForm } from "@/components/CreateInvitationForm";
-import { CopyLoginUrlButton } from "@/components/CopyLoginUrlButton";
 
 const roleLabel: Record<string, string> = { admin: "管理者", member: "一般メンバー" };
 const statusLabel: Record<string, string> = { active: "参加済み", invited: "招待中" };
@@ -49,11 +48,10 @@ export default async function AdminInvitationsPage() {
           {members.map((m) => (
             <li key={m.id} className="flex items-center justify-between py-2 text-sm">
               <span>{m.email}</span>
-              <span className="flex items-center gap-2 text-xs text-neutral-500">
+              <span className="flex gap-2 text-xs text-neutral-500">
                 <span>{roleLabel[m.role]}</span>
                 <span>・</span>
                 <span>{statusLabel[m.status]}</span>
-                {m.status === "invited" && <CopyLoginUrlButton />}
               </span>
             </li>
           ))}

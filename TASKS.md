@@ -19,7 +19,7 @@
   - [x] ローカルでGoogle Cloud ConsoleのリダイレクトURI登録・`.env`のAuth.js関連値設定・実機での動作確認（サインイン→フロアマップ表示まで確認済み）
   - [x] **バグ修正**：`users.authUserId`が`uuid`型のままだったため、Googleの`sub`（数値文字列、UUID形式ではない）を書き込もうとしてPostgresエラーになりサインインが失敗する問題。`text`型に変更して解決（[schema.ts](./src/lib/db/schema.ts)）
   - [x] **要設定**：Google Cloud ConsoleのOAuth同意画面が「テスト」公開ステータスのままだと、テストユーザー未登録のGoogleアカウントは同意画面で401になり弾かれる問題に気づき、「本番」公開ステータスに変更して解決（スコープがemail/profile/openidのみのため審査不要）
-  - [x] 招待フローの改善：ログインURLをコピーできるボタン（[`CopyLoginUrlButton.tsx`](./src/components/CopyLoginUrlButton.tsx)、招待成功時とメンバー一覧の「招待中」行の両方に表示）、複数メールアドレスの一括招待（改行区切り入力）
+  - 招待フローの改善案（ログインURLのコピーボタン、複数メールアドレスの一括招待）は一度実装したが、ログインURLはアプリのURLと同じで招待ごとに変わらないため「コピー機能」自体が不要と判断し撤回。一括登録も現時点では不要と判断し、1件ずつの入力に戻した
 - [ ] 本番（Vercel）側でのGoogle Cloud ConsoleリダイレクトURI登録・環境変数設定・動作確認（ローカルのみ確認済み、次にやること）
 - [ ] （保留）Google以外のサインイン手段（フォールバック）。まずはGoogleのみで安定動作を確認してから要否を判断する
 
