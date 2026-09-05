@@ -57,12 +57,20 @@ export default async function Home() {
         <div className="flex items-center gap-3">
           <span className="text-xs text-neutral-400">{member.email}</span>
           {member.role === "admin" && (
-            <Link
-              href="/admin/invitations"
-              className="text-xs text-neutral-500 underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200"
-            >
-              メンバー招待
-            </Link>
+            <>
+              <Link
+                href="/admin/floors"
+                className="text-xs text-neutral-500 underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200"
+              >
+                フロア管理
+              </Link>
+              <Link
+                href="/admin/invitations"
+                className="text-xs text-neutral-500 underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200"
+              >
+                メンバー招待
+              </Link>
+            </>
           )}
           <LogoutButton />
         </div>
