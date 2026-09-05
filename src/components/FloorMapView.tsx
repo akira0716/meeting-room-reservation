@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { saveFloorLayoutAction, type NewRoomInput } from "@/app/actions";
 import type { FloorMapData, RoomWithReservations } from "@/lib/queries/getFloorMapData";
 import { FloorPlanUploadForm } from "./FloorPlanUploadForm";
@@ -11,6 +11,10 @@ const DEFAULT_ROOM_WIDTH = 120;
 const DEFAULT_ROOM_HEIGHT = 80;
 
 type Position = { x: number; y: number };
+type RoomLayout = { x: number; y: number; width: number; height: number };
+
+const MIN_ROOM_WIDTH = 40;
+const MIN_ROOM_HEIGHT = 30;
 
 /** まだDBに保存されていない、追加中の会議室。tempIdはクライアント側だけの一時識別子 */
 type DraftRoom = {
@@ -37,40 +41,174 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
   const [selectedFloorId, setSelectedFloorId] = useState(data.floors[0]?.id);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
-  // ドラッグで動かしたが、まだ「保存」を押していない位置。id(roomId or draftのtempId) -> 座標
-  const [pendingPositions, setPendingPositions] = useState<Record<string, Position>>({});
+  // ドラッグで動かした／リサイズした位置・サイズだが、まだ「保存」を押していないもの。
+  // id(roomId or draftのtempId) -> レイアウト
+  const [pendingLayout, setPendingLayout] = useState<Record<string, RoomLayout>>({});
   const [draftRooms, setDraftRooms] = useState<DraftRoom[]>([]);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [resizingId, setResizingId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [popoverPos, setPopoverPos] = useState<{ left: number; top: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  // mapOuterRef: ポップオーバーの位置決めの基準（overflowをclipしない、常に全体を包む要素）
+  // mapContainerRef: 実際にスクロール／クリップする箱（フロア図画像の表示・スクロール状態はここが持つ）
+  const mapOuterRef = useRef<HTMLDivElement>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
+  const dragSizeRef = useRef({ width: 0, height: 0 });
+  const resizeOriginRef = useRef({ x: 0, y: 0 });
 
   const selectedFloor = data.floors.find((f) => f.id === selectedFloorId) ?? data.floors[0];
   const hasPendingChanges =
-    Object.keys(pendingPositions).length > 0 ||
-    draftRooms.length > 0 ||
-    pendingDeleteIds.size > 0;
+    Object.keys(pendingLayout).length > 0 || draftRooms.length > 0 || pendingDeleteIds.size > 0;
 
-  const viewBox = useMemo(() => {
-    // フロア図（背景画像）があれば、座標系を画像のピクセルサイズに合わせる
-    if (selectedFloor?.floorPlanImageWidth && selectedFloor?.floorPlanImageHeight) {
-      return `0 0 ${selectedFloor.floorPlanImageWidth} ${selectedFloor.floorPlanImageHeight}`;
+  // SVG描画用に、既存の会議室と追加中の会議室を1つのリストにまとめる。
+  // ドラッグ移動・リサイズ中の座標（pendingLayout）をここで反映するため、
+  // viewBoxの計算（このすぐ下）もこのdisplayRoomsを基準にする。
+  // selectedFloor.rooms（サーバーから取得した保存済みの状態）だけを見て
+  // viewBoxを決めると、保存前の編集中の位置・サイズがviewBoxに反映されず、
+  // 「保存前は表示がずれる／保存後に正しいサイズに直る」という不具合になる。
+  const displayRooms = [
+    ...(selectedFloor?.rooms.map((room) => {
+      const pending = pendingLayout[room.id];
+      const baseLayout: RoomLayout = {
+        x: room.positionX,
+        y: room.positionY,
+        width: room.width,
+        height: room.height,
+      };
+      return {
+        id: room.id,
+        name: room.name,
+        x: pending ? pending.x : baseLayout.x,
+        y: pending ? pending.y : baseLayout.y,
+        width: pending ? pending.width : baseLayout.width,
+        height: pending ? pending.height : baseLayout.height,
+        isOccupiedNow: room.isOccupiedNow,
+        isDraft: false,
+        markedForDelete: pendingDeleteIds.has(room.id),
+        baseLayout,
+      };
+    }) ?? []),
+    ...draftRooms.map((draft) => {
+      const pending = pendingLayout[draft.tempId];
+      const baseLayout: RoomLayout = {
+        x: draft.positionX,
+        y: draft.positionY,
+        width: draft.width,
+        height: draft.height,
+      };
+      return {
+        id: draft.tempId,
+        name: draft.name || "（名称未設定）",
+        x: pending ? pending.x : baseLayout.x,
+        y: pending ? pending.y : baseLayout.y,
+        width: pending ? pending.width : baseLayout.width,
+        height: pending ? pending.height : baseLayout.height,
+        isOccupiedNow: false,
+        isDraft: true,
+        markedForDelete: false,
+        baseLayout,
+      };
+    }),
+  ];
+
+  // フロア図（背景画像）があるフロアは、画像の実ピクセルサイズをそのまま
+  // 表示エリア＝1フロアとして扱う（拡大縮小せず、はみ出す分はスクロールする）。
+  // 画像が無いフロアは、表示エリア自体を1フロア分として使い、部屋の配置範囲に
+  // 合わせて拡大縮小して表示する（スクロールは不要）。
+  const floorPlanWidth = selectedFloor?.floorPlanImageWidth ?? null;
+  const floorPlanHeight = selectedFloor?.floorPlanImageHeight ?? null;
+  const hasFloorPlanImage = Boolean(
+    selectedFloor?.floorPlanImageUrl && floorPlanWidth && floorPlanHeight,
+  );
+
+  const viewBox = (() => {
+    if (floorPlanWidth && floorPlanHeight) {
+      return `0 0 ${floorPlanWidth} ${floorPlanHeight}`;
     }
-    if (!selectedFloor || selectedFloor.rooms.length === 0) {
+    if (displayRooms.length === 0) {
       return `0 0 400 200`;
     }
-    const maxX = Math.max(...selectedFloor.rooms.map((r) => r.positionX + r.width));
-    const maxY = Math.max(...selectedFloor.rooms.map((r) => r.positionY + r.height));
+    const maxX = Math.max(...displayRooms.map((r) => r.x + r.width));
+    const maxY = Math.max(...displayRooms.map((r) => r.y + r.height));
     return `0 0 ${maxX + PADDING} ${maxY + PADDING}`;
-  }, [selectedFloor]);
+  })();
 
   const selectedRoom: RoomWithReservations | undefined = selectedFloor?.rooms.find(
     (r) => r.id === selectedRoomId,
   );
 
+  // 予約状況ポップオーバーを、クリックした会議室の右隣（収まらなければ左隣）に
+  // フロアマップ上へ重ねて表示する。フロアマップの枠からはみ出しても見切れない
+  // よう、ポップオーバーはマップの外（mapOuterRef直下、スクロールしない要素）に
+  // 置いている。そのため位置は「現在画面のどこに見えているか」（mapOuterRef基準の
+  // 現在のビューポート相対位置）で計算する必要があり、スクロールするたびに
+  // 再計算する（scrollイベントを監視）。
+  useLayoutEffect(() => {
+    // 対象が無い場合は何もしない（描画側はselectedRoom/popoverPosの有無だけで
+    // ポップオーバーの表示可否を判定するため、ここで明示的にクリアする必要はない）
+    if (isEditMode || !selectedRoomId) return;
+    const svg = svgRef.current;
+    const outer = mapOuterRef.current;
+    const room = displayRooms.find((r) => r.id === selectedRoomId);
+    if (!svg || !outer || !room) return;
+
+    const POPOVER_WIDTH = 300;
+    const GAP = 8;
+
+    function computePosition() {
+      const svgEl = svgRef.current;
+      const outerEl = mapOuterRef.current;
+      const containerEl = mapContainerRef.current;
+      if (!svgEl || !outerEl || !room) return;
+      const screenCtm = svgEl.getScreenCTM();
+      if (!screenCtm) return;
+      const ctm: DOMMatrix = screenCtm;
+
+      const outerRect = outerEl.getBoundingClientRect();
+
+      function toOuterRelativePoint(svgX: number, svgY: number) {
+        const point = svgEl!.createSVGPoint();
+        point.x = svgX;
+        point.y = svgY;
+        const screenPoint = point.matrixTransform(ctm);
+        return {
+          x: screenPoint.x - outerRect.left,
+          y: screenPoint.y - outerRect.top,
+        };
+      }
+
+      const topRight = toOuterRelativePoint(room.x + room.width, room.y);
+      const topLeft = toOuterRelativePoint(room.x, room.y);
+
+      // フロアマップの枠からはみ出す表示を許容するため、0や枠幅でクランプしない
+      // （右に入り切らない時だけ左隣に切り替える、という判定にのみ使う）
+      const visibleWidth = containerEl?.clientWidth ?? outerRect.width;
+      const fitsOnRight = topRight.x + GAP + POPOVER_WIDTH <= visibleWidth;
+      const left = fitsOnRight ? topRight.x + GAP : topLeft.x - GAP - POPOVER_WIDTH;
+      const top = topRight.y;
+
+      setPopoverPos({ left, top });
+    }
+
+    computePosition();
+    const containerEl = mapContainerRef.current;
+    window.addEventListener("resize", computePosition);
+    // フロア図画像のフロアはマップ内をスクロールできるため、スクロールするたびに
+    // 会議室の画面上の位置が変わる。ポップオーバーはスクロールしない
+    // mapOuterRef直下にあるため、scrollイベントで都度追従させる必要がある
+    containerEl?.addEventListener("scroll", computePosition);
+    return () => {
+      window.removeEventListener("resize", computePosition);
+      containerEl?.removeEventListener("scroll", computePosition);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRoomId, isEditMode, viewBox]);
+
   function resetPendingEdits() {
-    setPendingPositions({});
+    setPendingLayout({});
     setDraftRooms([]);
     setPendingDeleteIds(new Set());
   }
@@ -94,33 +232,70 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
     return window.confirm("保存されていない変更があります。破棄しますか？");
   }
 
-  function handlePointerDown(e: React.PointerEvent<SVGGElement>, id: string, base: Position) {
+  function handlePointerDown(e: React.PointerEvent<SVGGElement>, id: string, base: RoomLayout) {
     if (!isEditMode) return;
-    // 削除／元に戻すボタン上でのpointerdownはドラッグ扱いにしない。
+    // 削除／元に戻す／リサイズハンドル上でのpointerdownはドラッグ扱いにしない。
     // setPointerCaptureをここで取ってしまうと、後続のclickイベントの発火先が
     // このg要素側に変わってしまい、ボタン自体のonClickが発火しなくなるため。
     if ((e.target as Element).closest("[data-no-drag]")) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const svgPoint = toSvgPoint(e.clientX, e.clientY);
-    const current = pendingPositions[id] ?? base;
+    const current = pendingLayout[id] ?? base;
     dragOffsetRef.current = { x: svgPoint.x - current.x, y: svgPoint.y - current.y };
+    dragSizeRef.current = { width: current.width, height: current.height };
     setDraggingId(id);
   }
 
   function handlePointerMove(e: React.PointerEvent<SVGGElement>, id: string) {
     if (draggingId !== id) return;
     const svgPoint = toSvgPoint(e.clientX, e.clientY);
-    setPendingPositions((prev) => ({
+    const { width, height } = dragSizeRef.current;
+    setPendingLayout((prev) => ({
       ...prev,
       [id]: {
         x: Math.max(0, svgPoint.x - dragOffsetRef.current.x),
         y: Math.max(0, svgPoint.y - dragOffsetRef.current.y),
+        width,
+        height,
       },
     }));
   }
 
   function handlePointerUp() {
     setDraggingId(null);
+  }
+
+  // 会議室の右下角のハンドルをドラッグしてサイズ変更する。位置（左上）は固定し、
+  // ポインタ位置までwidth/heightを伸縮させる（最小サイズでクランプ）。
+  function handleResizePointerDown(
+    e: React.PointerEvent<SVGRectElement>,
+    id: string,
+    base: RoomLayout,
+  ) {
+    if (!isEditMode) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const current = pendingLayout[id] ?? base;
+    resizeOriginRef.current = { x: current.x, y: current.y };
+    setResizingId(id);
+  }
+
+  function handleResizePointerMove(e: React.PointerEvent<SVGRectElement>, id: string) {
+    if (resizingId !== id) return;
+    const svgPoint = toSvgPoint(e.clientX, e.clientY);
+    const origin = resizeOriginRef.current;
+    setPendingLayout((prev) => ({
+      ...prev,
+      [id]: {
+        x: origin.x,
+        y: origin.y,
+        width: Math.max(MIN_ROOM_WIDTH, svgPoint.x - origin.x),
+        height: Math.max(MIN_ROOM_HEIGHT, svgPoint.y - origin.y),
+      },
+    }));
+  }
+
+  function handleResizePointerUp() {
+    setResizingId(null);
   }
 
   function handleAddRoom() {
@@ -148,7 +323,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
 
   function removeDraftRoom(tempId: string) {
     setDraftRooms((prev) => prev.filter((room) => room.tempId !== tempId));
-    setPendingPositions((prev) => {
+    setPendingLayout((prev) => {
       const next = { ...prev };
       delete next[tempId];
       return next;
@@ -176,21 +351,28 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
     setIsSaving(true);
 
     const positionUpdates = selectedFloor.rooms
-      .filter((room) => pendingPositions[room.id] && !pendingDeleteIds.has(room.id))
+      .filter((room) => pendingLayout[room.id] && !pendingDeleteIds.has(room.id))
       .map((room) => ({
         roomId: room.id,
-        positionX: pendingPositions[room.id].x,
-        positionY: pendingPositions[room.id].y,
+        positionX: pendingLayout[room.id].x,
+        positionY: pendingLayout[room.id].y,
+        width: pendingLayout[room.id].width,
+        height: pendingLayout[room.id].height,
       }));
 
     const newRooms: NewRoomInput[] = draftRooms.map((draft) => {
-      const pos = pendingPositions[draft.tempId] ?? { x: draft.positionX, y: draft.positionY };
-      return {
-        name: draft.name,
-        positionX: pos.x,
-        positionY: pos.y,
+      const layout = pendingLayout[draft.tempId] ?? {
+        x: draft.positionX,
+        y: draft.positionY,
         width: draft.width,
         height: draft.height,
+      };
+      return {
+        name: draft.name,
+        positionX: layout.x,
+        positionY: layout.y,
+        width: layout.width,
+        height: layout.height,
         capacity: draft.capacity,
       };
     });
@@ -215,40 +397,6 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
   function handleDiscard() {
     resetPendingEdits();
   }
-
-  // SVG描画用に、既存の会議室と追加中の会議室を1つのリストにまとめる
-  const displayRooms = [
-    ...(selectedFloor?.rooms.map((room) => {
-      const pending = pendingPositions[room.id];
-      return {
-        id: room.id,
-        name: room.name,
-        x: pending ? pending.x : room.positionX,
-        y: pending ? pending.y : room.positionY,
-        width: room.width,
-        height: room.height,
-        isOccupiedNow: room.isOccupiedNow,
-        isDraft: false,
-        markedForDelete: pendingDeleteIds.has(room.id),
-        basePosition: { x: room.positionX, y: room.positionY },
-      };
-    }) ?? []),
-    ...draftRooms.map((draft) => {
-      const pending = pendingPositions[draft.tempId];
-      return {
-        id: draft.tempId,
-        name: draft.name || "（名称未設定）",
-        x: pending ? pending.x : draft.positionX,
-        y: pending ? pending.y : draft.positionY,
-        width: draft.width,
-        height: draft.height,
-        isOccupiedNow: false,
-        isDraft: true,
-        markedForDelete: false,
-        basePosition: { x: draft.positionX, y: draft.positionY },
-      };
-    }),
-  ];
 
   return (
     <div>
@@ -296,7 +444,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
       {isEditMode && (
         <div className="mt-2 flex items-center gap-3 text-xs">
           <p className="text-neutral-500">
-            会議室をドラッグして位置を調整できます。右側から会議室の追加・削除もできます。
+            会議室をドラッグして位置を調整、右下の■をドラッグしてサイズ変更できます。右側から追加・削除もできます。
           </p>
           {hasPendingChanges && (
             <div className="ml-auto flex items-center gap-2">
@@ -324,38 +472,48 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
 
       {isAdmin && selectedFloor && <FloorPlanUploadForm floorId={selectedFloor.id} />}
 
-      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr]">
+      <div className="mt-4">
         {/*
-          フロア図画像の有無・部屋の配置範囲によってviewBoxの縦横比が変わり、
-          そのままだと画面の高さが表示のたびに変動してしまう。
-          外側をaspect-ratio固定のコンテナにし、svg自体は絶対配置でその中に
-          収める（preserveAspectRatio="xMidYMid meet"でレターボックスする）ことで、
-          表示領域のサイズを常に一定に保つ。
+          フロアマップは画面横いっぱいに表示する。予約状況（RoomDetailPanel）は
+          専用のカラムを設けず、クリックした会議室の右隣（収まらなければ左隣）に
+          ポップオーバーとしてマップ上へ重ねて表示する（下のuseLayoutEffect参照）。
+          ポップオーバーはフロアマップの外（mapOuterRef直下）に置き、マップ側の
+          overflow-hidden/overflow-autoでは見切れないようにしている。
 
-          min-w-0が無いと、CSS Gridのfrトラックは中身の最小コンテンツ幅を
-          考慮してしまい、右側パネルの中身（ボタンやバッジなど）の幅次第で
-          このカラム自体の幅が押し縮められ、結果としてaspect-ratioで決まる
-          高さまで変動してしまう。両カラムにmin-w-0を付けて、fr比率どおりの
-          幅で固定する。
+          フロア図画像があるフロアは、画像の実ピクセルサイズをそのまま
+          表示エリア＝1フロアとして扱う（拡大縮小せず、はみ出す分はスクロール
+          する。見た目のスクロールバーはno-scrollbarで隠す）。画像が無い
+          フロアは、表示エリア自体を1フロア分として使い、部屋の配置範囲に
+          合わせてaspect-ratio固定のコンテナ内で拡大縮小して表示する
+          （スクロール不要）。
         */}
-        <div className="relative aspect-[4/3] w-full min-w-0 overflow-hidden rounded-lg border border-black/10 bg-neutral-50 dark:border-white/10 dark:bg-neutral-950">
-          <svg
-            ref={svgRef}
-            viewBox={viewBox}
-            preserveAspectRatio="xMidYMid meet"
-            className="absolute inset-0 h-full w-full"
+        <div ref={mapOuterRef} className="relative w-full min-w-0">
+          <div
+            ref={mapContainerRef}
+            className={
+              hasFloorPlanImage
+                ? "no-scrollbar max-h-[480px] w-full overflow-auto rounded-lg border border-black/10 dark:border-white/10"
+                : "aspect-[4/3] w-full overflow-hidden rounded-lg border border-black/10 bg-neutral-50 dark:border-white/10 dark:bg-neutral-950"
+            }
           >
-          {selectedFloor?.floorPlanImageUrl && (
-            <image
-              href={selectedFloor.floorPlanImageUrl}
-              x={0}
-              y={0}
-              width={selectedFloor.floorPlanImageWidth ?? undefined}
-              height={selectedFloor.floorPlanImageHeight ?? undefined}
-              preserveAspectRatio="xMidYMid slice"
-            />
-          )}
-          {displayRooms.map((room) => {
+            <svg
+              ref={svgRef}
+              viewBox={viewBox}
+              width={hasFloorPlanImage ? (floorPlanWidth ?? undefined) : undefined}
+              height={hasFloorPlanImage ? (floorPlanHeight ?? undefined) : undefined}
+              preserveAspectRatio={hasFloorPlanImage ? undefined : "xMidYMid meet"}
+              className={hasFloorPlanImage ? "block" : "h-full w-full"}
+            >
+            {hasFloorPlanImage && selectedFloor?.floorPlanImageUrl && (
+              <image
+                href={selectedFloor.floorPlanImageUrl}
+                x={0}
+                y={0}
+                width={floorPlanWidth ?? undefined}
+                height={floorPlanHeight ?? undefined}
+              />
+            )}
+            {displayRooms.map((room) => {
             const isDragging = draggingId === room.id;
 
             return (
@@ -366,7 +524,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                 }}
                 onPointerDown={(e) => {
                   if (room.markedForDelete) return;
-                  handlePointerDown(e, room.id, room.basePosition);
+                  handlePointerDown(e, room.id, room.baseLayout);
                 }}
                 onPointerMove={(e) => handlePointerMove(e, room.id)}
                 onPointerUp={handlePointerUp}
@@ -395,7 +553,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                       ? "stroke-2 stroke-rose-500"
                       : room.isDraft
                         ? "stroke-2 stroke-emerald-500"
-                        : pendingPositions[room.id]
+                        : pendingLayout[room.id]
                           ? "stroke-2 stroke-amber-500"
                           : room.id === selectedRoomId
                             ? "stroke-2 stroke-neutral-900 dark:stroke-white"
@@ -444,6 +602,20 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                     ×
                   </text>
                 )}
+                {isEditMode && !room.markedForDelete && (
+                  <rect
+                    data-no-drag
+                    x={room.x + room.width - 7}
+                    y={room.y + room.height - 7}
+                    width={14}
+                    height={14}
+                    rx={2}
+                    onPointerDown={(e) => handleResizePointerDown(e, room.id, room.baseLayout)}
+                    onPointerMove={(e) => handleResizePointerMove(e, room.id)}
+                    onPointerUp={handleResizePointerUp}
+                    className="cursor-nwse-resize fill-neutral-900 stroke-1 stroke-white dark:fill-white dark:stroke-neutral-900"
+                  />
+                )}
                 {isEditMode && room.markedForDelete && (
                   <text
                     data-no-drag
@@ -462,80 +634,90 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
               </g>
             );
           })}
-          </svg>
-        </div>
+            </svg>
+          </div>
 
-        <div className="min-w-0">
-          {isEditMode ? (
-            <div className="space-y-4 text-sm">
-              <button
-                type="button"
-                onClick={handleAddRoom}
-                className="w-full rounded-md border border-dashed border-black/20 px-3 py-2 text-xs font-medium text-neutral-600 hover:bg-black/5 dark:border-white/20 dark:text-neutral-300 dark:hover:bg-white/10"
-              >
-                ＋ 会議室を追加
-              </button>
-
-              {draftRooms.length > 0 && (
-                <div>
-                  <p className="text-xs font-medium text-neutral-500">
-                    追加予定の会議室（ドラッグで配置調整可）
-                  </p>
-                  <ul className="mt-1 max-h-56 space-y-2 overflow-y-auto">
-                    {draftRooms.map((draft) => (
-                      <li
-                        key={draft.tempId}
-                        className="rounded-md border border-emerald-500/40 p-2"
-                      >
-                        <input
-                          type="text"
-                          required
-                          placeholder="会議室名"
-                          value={draft.name}
-                          onChange={(e) =>
-                            updateDraftRoom(draft.tempId, { name: e.target.value })
-                          }
-                          className="w-full rounded border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/10"
-                        />
-                        <div className="mt-1 flex items-center gap-2">
-                          <label className="text-xs text-neutral-500">定員</label>
-                          <input
-                            type="number"
-                            min={1}
-                            value={draft.capacity ?? ""}
-                            onChange={(e) =>
-                              updateDraftRoom(draft.tempId, {
-                                capacity: e.target.value ? Number(e.target.value) : null,
-                              })
-                            }
-                            className="w-16 rounded border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/10"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => removeDraftRoom(draft.tempId)}
-                            className="ml-auto text-xs text-rose-600 hover:text-rose-800 dark:text-rose-400"
-                          >
-                            取り消す
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              <p className="text-neutral-400">
-                会議室の右上の「×」で削除予定にできます。サイズ変更は今後対応予定です。
-              </p>
+          {!isEditMode && selectedRoom && popoverPos && (
+            <div
+              className="absolute z-10"
+              style={{ left: popoverPos.left, top: popoverPos.top, width: 300 }}
+            >
+              <RoomDetailPanel
+                key={selectedRoom.id}
+                room={selectedRoom}
+                onClose={() => setSelectedRoomId(null)}
+              />
             </div>
-          ) : selectedRoom ? (
-            <RoomDetailPanel key={selectedRoom.id} room={selectedRoom} />
-          ) : (
-            <p className="text-sm text-neutral-400">
-              会議室をクリックすると、本日の予約状況と予約フォームが表示されます。
-            </p>
           )}
         </div>
+
+        {!isEditMode && !selectedRoom && (
+          <p className="mt-2 text-sm text-neutral-400">
+            会議室をクリックすると、本日の予約状況と予約フォームが表示されます。
+          </p>
+        )}
+
+        {isEditMode && (
+          <div className="mt-4 space-y-4 text-sm">
+            <button
+              type="button"
+              onClick={handleAddRoom}
+              className="rounded-md border border-dashed border-black/20 px-3 py-2 text-xs font-medium text-neutral-600 hover:bg-black/5 dark:border-white/20 dark:text-neutral-300 dark:hover:bg-white/10"
+            >
+              ＋ 会議室を追加
+            </button>
+
+            {draftRooms.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-neutral-500">
+                  追加予定の会議室（ドラッグで配置調整可）
+                </p>
+                <ul className="mt-1 grid max-h-56 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
+                  {draftRooms.map((draft) => (
+                    <li
+                      key={draft.tempId}
+                      className="rounded-md border border-emerald-500/40 p-2"
+                    >
+                      <input
+                        type="text"
+                        required
+                        placeholder="会議室名"
+                        value={draft.name}
+                        onChange={(e) => updateDraftRoom(draft.tempId, { name: e.target.value })}
+                        className="w-full rounded border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/10"
+                      />
+                      <div className="mt-1 flex items-center gap-2">
+                        <label className="text-xs text-neutral-500">定員</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={draft.capacity ?? ""}
+                          onChange={(e) =>
+                            updateDraftRoom(draft.tempId, {
+                              capacity: e.target.value ? Number(e.target.value) : null,
+                            })
+                          }
+                          className="w-16 rounded border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/10"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeDraftRoom(draft.tempId)}
+                          className="ml-auto text-xs text-rose-600 hover:text-rose-800 dark:text-rose-400"
+                        >
+                          取り消す
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <p className="text-neutral-400">
+              会議室の右上の「×」で削除予定に、右下の■でサイズ変更できます。
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

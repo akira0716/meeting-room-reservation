@@ -28,3 +28,13 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* フロアマップ（フロア図画像を実サイズ表示するスクロールコンテナ）用。
+   スクロール自体は有効なまま、見た目のスクロールバーだけを非表示にする。 */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* 旧Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome, Safari */
+}

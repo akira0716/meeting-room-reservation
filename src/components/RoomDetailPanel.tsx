@@ -146,22 +146,41 @@ function BookingForm({ roomId, onClose }: { roomId: string; onClose: () => void 
   );
 }
 
-export function RoomDetailPanel({ room }: { room: RoomWithReservations }) {
+export function RoomDetailPanel({
+  room,
+  onClose,
+}: {
+  room: RoomWithReservations;
+  /** フロアマップ上のポップオーバーとして表示している場合の閉じるボタン。指定時のみ表示する */
+  onClose?: () => void;
+}) {
   const [showForm, setShowForm] = useState(false);
 
   return (
     <div className="rounded-lg border border-black/10 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-neutral-900">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">{room.name}</h2>
-        <span
-          className={
-            room.isOccupiedNow
-              ? "rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
-              : "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-          }
-        >
-          {room.isOccupiedNow ? "使用中" : "空き"}
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className={
+              room.isOccupiedNow
+                ? "rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
+                : "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+            }
+          >
+            {room.isOccupiedNow ? "使用中" : "空き"}
+          </span>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="閉じる"
+              className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
       {room.capacity != null && (
         <p className="mt-1 text-sm text-neutral-500">定員 {room.capacity}名</p>
