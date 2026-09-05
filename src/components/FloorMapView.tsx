@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { saveFloorLayoutAction, type NewRoomInput } from "@/app/actions";
 import type { FloorMapData, RoomWithReservations } from "@/lib/queries/getFloorMapData";
 import { FloorPlanUploadForm } from "./FloorPlanUploadForm";
@@ -49,7 +49,9 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [resizingId, setResizingId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [popoverPos, setPopoverPos] = useState<{ left: number; top: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
   const dragSizeRef = useRef({ width: 0, height: 0 });
   const resizeOriginRef = useRef({ x: 0, y: 0 });
@@ -134,6 +136,60 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
   const selectedRoom: RoomWithReservations | undefined = selectedFloor?.rooms.find(
     (r) => r.id === selectedRoomId,
   );
+
+  // 予約状況ポップオーバーを、クリックした会議室の右隣（収まらなければ左隣）に
+  // フロアマップ上へ重ねて表示する。位置はSVGのgetScreenCTM()で会議室の座標を
+  // 画面座標に変換し、マップのコンテナ基準（スクロール量を加味した「コンテンツ
+  // 座標」）に変換して求める。これによりネイティブ表示（等倍）・縮小表示
+  // （aspect-ratio固定＋fit）のどちらでも、スクロールしても正しい位置に付く。
+  useLayoutEffect(() => {
+    // 対象が無い場合は何もしない（描画側はselectedRoom/popoverPosの有無だけで
+    // ポップオーバーの表示可否を判定するため、ここで明示的にクリアする必要はない）
+    if (isEditMode || !selectedRoomId) return;
+    const svg = svgRef.current;
+    const container = mapContainerRef.current;
+    const room = displayRooms.find((r) => r.id === selectedRoomId);
+    if (!svg || !container || !room) return;
+
+    const POPOVER_WIDTH = 300;
+    const GAP = 8;
+
+    function computePosition() {
+      const svgEl = svgRef.current;
+      const containerEl = mapContainerRef.current;
+      if (!svgEl || !containerEl || !room) return;
+      const screenCtm = svgEl.getScreenCTM();
+      if (!screenCtm) return;
+      const ctm: DOMMatrix = screenCtm;
+
+      const containerRect = containerEl.getBoundingClientRect();
+
+      function toContentPoint(svgX: number, svgY: number) {
+        const point = svgEl!.createSVGPoint();
+        point.x = svgX;
+        point.y = svgY;
+        const screenPoint = point.matrixTransform(ctm);
+        return {
+          x: screenPoint.x - containerRect.left + containerEl!.scrollLeft,
+          y: screenPoint.y - containerRect.top + containerEl!.scrollTop,
+        };
+      }
+
+      const topRight = toContentPoint(room.x + room.width, room.y);
+      const topLeft = toContentPoint(room.x, room.y);
+
+      const fitsOnRight = topRight.x + GAP + POPOVER_WIDTH <= containerEl.scrollWidth;
+      const left = fitsOnRight ? topRight.x + GAP : Math.max(0, topLeft.x - GAP - POPOVER_WIDTH);
+      const top = Math.max(0, topRight.y);
+
+      setPopoverPos({ left, top });
+    }
+
+    computePosition();
+    window.addEventListener("resize", computePosition);
+    return () => window.removeEventListener("resize", computePosition);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRoomId, isEditMode, viewBox]);
 
   function resetPendingEdits() {
     setPendingLayout({});
@@ -400,12 +456,11 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
 
       {isAdmin && selectedFloor && <FloorPlanUploadForm floorId={selectedFloor.id} />}
 
-      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr]">
+      <div className="mt-4">
         {/*
-          min-w-0が無いと、CSS Gridのfrトラックは中身の最小コンテンツ幅を
-          考慮してしまい、右側パネルの中身（ボタンやバッジなど）の幅次第で
-          このカラム自体の幅が押し縮められてしまう。両カラムにmin-w-0を付けて、
-          fr比率どおりの幅で固定する。
+          フロアマップは画面横いっぱいに表示する。予約状況（RoomDetailPanel）は
+          専用のカラムを設けず、クリックした会議室の右隣（収まらなければ左隣）に
+          ポップオーバーとしてマップ上へ重ねて表示する（下のuseLayoutEffect参照）。
 
           フロア図画像があるフロアは、画像の実ピクセルサイズをそのまま
           表示エリア＝1フロアとして扱う（拡大縮小せず、はみ出す分は
@@ -414,30 +469,43 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
           固定のコンテナ内で拡大縮小して表示する（スクロール不要）。
         */}
         <div
+          ref={mapContainerRef}
           className={
             hasFloorPlanImage
-              ? "max-h-[480px] w-full min-w-0 overflow-auto rounded-lg border border-black/10 dark:border-white/10"
-              : "relative aspect-[4/3] w-full min-w-0 overflow-hidden rounded-lg border border-black/10 bg-neutral-50 dark:border-white/10 dark:bg-neutral-950"
+              ? "relative max-h-[480px] w-full min-w-0 overflow-auto rounded-lg border border-black/10 dark:border-white/10"
+              : "relative aspect-[4/3] w-full min-w-0"
           }
         >
-          <svg
-            ref={svgRef}
-            viewBox={viewBox}
-            width={hasFloorPlanImage ? (floorPlanWidth ?? undefined) : undefined}
-            height={hasFloorPlanImage ? (floorPlanHeight ?? undefined) : undefined}
-            preserveAspectRatio={hasFloorPlanImage ? undefined : "xMidYMid meet"}
-            className={hasFloorPlanImage ? "block" : "absolute inset-0 h-full w-full"}
+          {/*
+            画像が無いフロアだけ、SVGをこの内側のラッパーで切り抜く。
+            ポップオーバー（この下）はこのラッパーの外＝outerのrelativeコンテナ直下に
+            置くことで、overflow-hiddenで見切れないようにしている。
+          */}
+          <div
+            className={
+              hasFloorPlanImage
+                ? undefined
+                : "absolute inset-0 overflow-hidden rounded-lg border border-black/10 bg-neutral-50 dark:border-white/10 dark:bg-neutral-950"
+            }
           >
-          {hasFloorPlanImage && selectedFloor?.floorPlanImageUrl && (
-            <image
-              href={selectedFloor.floorPlanImageUrl}
-              x={0}
-              y={0}
-              width={floorPlanWidth ?? undefined}
-              height={floorPlanHeight ?? undefined}
-            />
-          )}
-          {displayRooms.map((room) => {
+            <svg
+              ref={svgRef}
+              viewBox={viewBox}
+              width={hasFloorPlanImage ? (floorPlanWidth ?? undefined) : undefined}
+              height={hasFloorPlanImage ? (floorPlanHeight ?? undefined) : undefined}
+              preserveAspectRatio={hasFloorPlanImage ? undefined : "xMidYMid meet"}
+              className={hasFloorPlanImage ? "block" : "absolute inset-0 h-full w-full"}
+            >
+            {hasFloorPlanImage && selectedFloor?.floorPlanImageUrl && (
+              <image
+                href={selectedFloor.floorPlanImageUrl}
+                x={0}
+                y={0}
+                width={floorPlanWidth ?? undefined}
+                height={floorPlanHeight ?? undefined}
+              />
+            )}
+            {displayRooms.map((room) => {
             const isDragging = draggingId === room.id;
 
             return (
@@ -558,80 +626,90 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
               </g>
             );
           })}
-          </svg>
-        </div>
+            </svg>
+          </div>
 
-        <div className="min-w-0">
-          {isEditMode ? (
-            <div className="space-y-4 text-sm">
-              <button
-                type="button"
-                onClick={handleAddRoom}
-                className="w-full rounded-md border border-dashed border-black/20 px-3 py-2 text-xs font-medium text-neutral-600 hover:bg-black/5 dark:border-white/20 dark:text-neutral-300 dark:hover:bg-white/10"
-              >
-                ＋ 会議室を追加
-              </button>
-
-              {draftRooms.length > 0 && (
-                <div>
-                  <p className="text-xs font-medium text-neutral-500">
-                    追加予定の会議室（ドラッグで配置調整可）
-                  </p>
-                  <ul className="mt-1 max-h-56 space-y-2 overflow-y-auto">
-                    {draftRooms.map((draft) => (
-                      <li
-                        key={draft.tempId}
-                        className="rounded-md border border-emerald-500/40 p-2"
-                      >
-                        <input
-                          type="text"
-                          required
-                          placeholder="会議室名"
-                          value={draft.name}
-                          onChange={(e) =>
-                            updateDraftRoom(draft.tempId, { name: e.target.value })
-                          }
-                          className="w-full rounded border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/10"
-                        />
-                        <div className="mt-1 flex items-center gap-2">
-                          <label className="text-xs text-neutral-500">定員</label>
-                          <input
-                            type="number"
-                            min={1}
-                            value={draft.capacity ?? ""}
-                            onChange={(e) =>
-                              updateDraftRoom(draft.tempId, {
-                                capacity: e.target.value ? Number(e.target.value) : null,
-                              })
-                            }
-                            className="w-16 rounded border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/10"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => removeDraftRoom(draft.tempId)}
-                            className="ml-auto text-xs text-rose-600 hover:text-rose-800 dark:text-rose-400"
-                          >
-                            取り消す
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              <p className="text-neutral-400">
-                会議室の右上の「×」で削除予定に、右下の■でサイズ変更できます。
-              </p>
+          {!isEditMode && selectedRoom && popoverPos && (
+            <div
+              className="absolute z-10"
+              style={{ left: popoverPos.left, top: popoverPos.top, width: 300 }}
+            >
+              <RoomDetailPanel
+                key={selectedRoom.id}
+                room={selectedRoom}
+                onClose={() => setSelectedRoomId(null)}
+              />
             </div>
-          ) : selectedRoom ? (
-            <RoomDetailPanel key={selectedRoom.id} room={selectedRoom} />
-          ) : (
-            <p className="text-sm text-neutral-400">
-              会議室をクリックすると、本日の予約状況と予約フォームが表示されます。
-            </p>
           )}
         </div>
+
+        {!isEditMode && !selectedRoom && (
+          <p className="mt-2 text-sm text-neutral-400">
+            会議室をクリックすると、本日の予約状況と予約フォームが表示されます。
+          </p>
+        )}
+
+        {isEditMode && (
+          <div className="mt-4 space-y-4 text-sm">
+            <button
+              type="button"
+              onClick={handleAddRoom}
+              className="rounded-md border border-dashed border-black/20 px-3 py-2 text-xs font-medium text-neutral-600 hover:bg-black/5 dark:border-white/20 dark:text-neutral-300 dark:hover:bg-white/10"
+            >
+              ＋ 会議室を追加
+            </button>
+
+            {draftRooms.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-neutral-500">
+                  追加予定の会議室（ドラッグで配置調整可）
+                </p>
+                <ul className="mt-1 grid max-h-56 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
+                  {draftRooms.map((draft) => (
+                    <li
+                      key={draft.tempId}
+                      className="rounded-md border border-emerald-500/40 p-2"
+                    >
+                      <input
+                        type="text"
+                        required
+                        placeholder="会議室名"
+                        value={draft.name}
+                        onChange={(e) => updateDraftRoom(draft.tempId, { name: e.target.value })}
+                        className="w-full rounded border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/10"
+                      />
+                      <div className="mt-1 flex items-center gap-2">
+                        <label className="text-xs text-neutral-500">定員</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={draft.capacity ?? ""}
+                          onChange={(e) =>
+                            updateDraftRoom(draft.tempId, {
+                              capacity: e.target.value ? Number(e.target.value) : null,
+                            })
+                          }
+                          className="w-16 rounded border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/10"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeDraftRoom(draft.tempId)}
+                          className="ml-auto text-xs text-rose-600 hover:text-rose-800 dark:text-rose-400"
+                        >
+                          取り消す
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <p className="text-neutral-400">
+              会議室の右上の「×」で削除予定に、右下の■でサイズ変更できます。
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
