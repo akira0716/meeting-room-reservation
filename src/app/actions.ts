@@ -1,10 +1,10 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getAuthContext } from "@/lib/auth/getAuthContext";
 import { db } from "@/lib/db/client";
-import { rooms } from "@/lib/db/schema";
+import { buildings, floors, rooms } from "@/lib/db/schema";
 import { DrizzleReservationRepository } from "@/lib/repositories/drizzleReservationRepository";
 import {
   createReservation,
@@ -161,28 +161,85 @@ export async function deleteReservationAction(
 
 export type RoomPositionUpdate = { roomId: string; positionX: number; positionY: number };
 
+export type NewRoomInput = {
+  name: string;
+  positionX: number;
+  positionY: number;
+  width: number;
+  height: number;
+  capacity: number | null;
+};
+
+export type SaveFloorLayoutInput = {
+  floorId: string;
+  positionUpdates: RoomPositionUpdate[];
+  newRooms: NewRoomInput[];
+  deleteRoomIds: string[];
+};
+
 /**
- * フロア編集モードで動かした会議室の位置をまとめて保存する（「保存」ボタン押下時のみ通信する）。
- * フォームに紐づかない直接呼び出し用のServer Action（管理者のみ）。
- * 1件ずつ都度保存すると通信状況によって画面反映が遅れて見えるため、確定操作でまとめて反映する設計にしている。
+ * フロア編集モードでの変更（会議室の移動・追加・削除）をまとめて保存する
+ * （「保存」ボタン押下時のみ通信する）。フォームに紐づかない直接呼び出し用の
+ * Server Action（管理者のみ）。1件ずつ都度保存すると通信状況によって画面反映が
+ * 遅れて見えるため、確定操作でまとめて反映する設計にしている。
+ *
+ * 対象のフロアが自分の組織のものか、移動・削除対象の会議室がそのフロアに
+ * 実在するかをサーバー側で検証してから書き込む（クライアントの入力を信用しない）。
  */
-export async function updateRoomPositionsAction(
-  positions: RoomPositionUpdate[],
+export async function saveFloorLayoutAction(
+  input: SaveFloorLayoutInput,
 ): Promise<{ error?: string }> {
   const { member } = await getAuthContext();
   if (!member || member.role !== "admin") {
-    return { error: "管理者のみ会議室を移動できます" };
+    return { error: "管理者のみ会議室を編集できます" };
   }
-  if (positions.length === 0) {
+
+  const [floor] = await db
+    .select({ id: floors.id, organizationId: buildings.organizationId })
+    .from(floors)
+    .innerJoin(buildings, eq(floors.buildingId, buildings.id))
+    .where(eq(floors.id, input.floorId))
+    .limit(1);
+  if (!floor || floor.organizationId !== member.organizationId) {
+    return { error: "対象のフロアが見つかりません" };
+  }
+
+  const existingRooms = await db
+    .select({ id: rooms.id })
+    .from(rooms)
+    .where(eq(rooms.floorId, input.floorId));
+  const existingIds = new Set(existingRooms.map((r) => r.id));
+
+  const positionUpdates = input.positionUpdates.filter((u) => existingIds.has(u.roomId));
+  const deleteRoomIds = input.deleteRoomIds.filter((id) => existingIds.has(id));
+  const newRooms = input.newRooms
+    .map((r) => ({ ...r, name: r.name.trim() }))
+    .filter((r) => r.name.length > 0);
+
+  if (positionUpdates.length === 0 && deleteRoomIds.length === 0 && newRooms.length === 0) {
     return {};
   }
 
   await db.transaction(async (tx) => {
-    for (const { roomId, positionX, positionY } of positions) {
+    for (const { roomId, positionX, positionY } of positionUpdates) {
       await tx
         .update(rooms)
         .set({ positionX: Math.round(positionX), positionY: Math.round(positionY) })
         .where(eq(rooms.id, roomId));
+    }
+    for (const room of newRooms) {
+      await tx.insert(rooms).values({
+        floorId: input.floorId,
+        name: room.name,
+        positionX: Math.round(room.positionX),
+        positionY: Math.round(room.positionY),
+        width: Math.max(20, Math.round(room.width)),
+        height: Math.max(20, Math.round(room.height)),
+        capacity: room.capacity,
+      });
+    }
+    if (deleteRoomIds.length > 0) {
+      await tx.delete(rooms).where(inArray(rooms.id, deleteRoomIds));
     }
   });
 
