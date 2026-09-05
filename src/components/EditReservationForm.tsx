@@ -3,15 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useActionState } from "react";
 import { updateReservationAction, type UpdateReservationState } from "@/app/actions";
+import { toDatetimeLocalValue } from "@/lib/dateKey";
 import type { RoomReservation } from "@/lib/queries/getFloorMapData";
 import { DeleteReservationButton } from "./DeleteReservationButton";
-
-function toDatetimeLocalValue(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}`;
-}
 
 const initialState: UpdateReservationState = { status: "idle" };
 

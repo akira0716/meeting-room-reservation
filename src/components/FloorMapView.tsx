@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useRef, useState } from "react";
 import { saveFloorLayoutAction, type NewRoomInput } from "@/app/actions";
+import { formatDateLabel, toDatetimeLocalValue } from "@/lib/dateKey";
 import type { FloorMapData, RoomWithReservations } from "@/lib/queries/getFloorMapData";
 import { isOverlapping } from "@/lib/services/reservationOverlap";
 import { FloorPlanUploadForm } from "./FloorPlanUploadForm";
@@ -53,9 +54,13 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
   const [popoverPos, setPopoverPos] = useState<{ left: number; top: number } | null>(null);
   // 会議室検索（参加人数・開始/終了時刻）。フロアは検索条件に含めず、今表示中の
   // フロアの中だけで絞り込む（フロアタブと役割が重複しないようにするため）。
+  // 開始・終了は時刻のみ（"HH:MM"）を入力させ、日付は常にdata.date（フロアマップが
+  // 表示中の日付）を使う。以前はdatetime-localで日付も入力できてしまい、今日以外の
+  // 日付を打ち込んでも実際にはdata.date（読み込み済みの予約データの日）でしか
+  // 判定されないため、誤った空き状況が表示される不具合があった。
   const [searchCapacity, setSearchCapacity] = useState("");
-  const [searchStart, setSearchStart] = useState("");
-  const [searchEnd, setSearchEnd] = useState("");
+  const [searchStartTime, setSearchStartTime] = useState("");
+  const [searchEndTime, setSearchEndTime] = useState("");
   const svgRef = useRef<SVGSVGElement>(null);
   // mapOuterRef: ポップオーバーの位置決めの基準（overflowをclipしない、常に全体を包む要素）
   // mapContainerRef: 実際にスクロール／クリップする箱（フロア図画像の表示・スクロール状態はここが持つ）
@@ -71,11 +76,10 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
 
   // 会議室検索：編集モード中は対象外（編集モードには別のツールバーがある）。
   // 参加人数・開始/終了時刻はそれぞれ独立に適用でき、指定していない条件は無視する。
-  // 「本日の予約」しか読み込んでいないため、検索も本日の時間帯のみを対象にする
-  // （日をまたぐ空き状況の検索は将来の課題）。
+  // data.dateの1日分の予約しか読み込んでいないため、検索もその日の時間帯のみを対象にする。
   const searchRange =
-    searchStart && searchEnd
-      ? { start: new Date(searchStart), end: new Date(searchEnd) }
+    searchStartTime && searchEndTime
+      ? { start: new Date(`${data.date}T${searchStartTime}`), end: new Date(`${data.date}T${searchEndTime}`) }
       : null;
   const hasValidSearchRange =
     searchRange !== null &&
@@ -83,6 +87,25 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
     !Number.isNaN(searchRange.end.getTime()) &&
     searchRange.start < searchRange.end;
   const isSearchActive = !isEditMode && (searchCapacity !== "" || hasValidSearchRange);
+  const dateLabel = data.isToday ? "本日" : formatDateLabel(data.date);
+
+  // 予約フォームの開始・終了の初期値。検索条件（開始/終了時刻）を指定していれば
+  // それを引き継ぎ、無指定なら「今日を見ている場合は現在時刻を切り上げた次の30分単位」
+  // 「今日以外を見ている場合はその日の9:00」をデフォルトにする（今日以外では
+  // "現在時刻"に意味が無いため）。
+  const defaultBookingRange = (() => {
+    if (hasValidSearchRange) {
+      return { start: `${data.date}T${searchStartTime}`, end: `${data.date}T${searchEndTime}` };
+    }
+    if (data.isToday) {
+      const now = new Date();
+      const start = new Date(now);
+      start.setMinutes(Math.ceil(start.getMinutes() / 30) * 30, 0, 0);
+      const end = new Date(start.getTime() + 30 * 60_000);
+      return { start: toDatetimeLocalValue(start), end: toDatetimeLocalValue(end) };
+    }
+    return { start: `${data.date}T09:00`, end: `${data.date}T09:30` };
+  })();
 
   function roomMatchesSearch(room: RoomWithReservations): boolean {
     if (searchCapacity !== "") {
@@ -120,7 +143,11 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
         y: pending ? pending.y : baseLayout.y,
         width: pending ? pending.width : baseLayout.width,
         height: pending ? pending.height : baseLayout.height,
-        isOccupiedNow: room.isOccupiedNow,
+        // 今日を見ている場合は「今まさに使用中か」、それ以外の日を見ている場合は
+        // 「その日に予約が1件でもあるか」を「busy（空きではない）」とみなす。
+        // 過去・未来の日付には「今」という概念が無いため、isOccupiedNowをそのまま
+        // 使うと常に「空き」に見えてしまう
+        isBusy: data.isToday ? room.isOccupiedNow : room.reservations.length > 0,
         isDraft: false,
         markedForDelete: pendingDeleteIds.has(room.id),
         matchesSearch: !isSearchActive || roomMatchesSearch(room),
@@ -142,7 +169,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
         y: pending ? pending.y : baseLayout.y,
         width: pending ? pending.width : baseLayout.width,
         height: pending ? pending.height : baseLayout.height,
-        isOccupiedNow: false,
+        isBusy: false,
         isDraft: true,
         markedForDelete: false,
         matchesSearch: true,
@@ -523,18 +550,18 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
           <div>
             <label className="block text-neutral-500">開始</label>
             <input
-              type="datetime-local"
-              value={searchStart}
-              onChange={(e) => setSearchStart(e.target.value)}
+              type="time"
+              value={searchStartTime}
+              onChange={(e) => setSearchStartTime(e.target.value)}
               className="mt-0.5 rounded border border-black/10 bg-transparent px-2 py-1 dark:border-white/10"
             />
           </div>
           <div>
             <label className="block text-neutral-500">終了</label>
             <input
-              type="datetime-local"
-              value={searchEnd}
-              onChange={(e) => setSearchEnd(e.target.value)}
+              type="time"
+              value={searchEndTime}
+              onChange={(e) => setSearchEndTime(e.target.value)}
               className="mt-0.5 rounded border border-black/10 bg-transparent px-2 py-1 dark:border-white/10"
             />
           </div>
@@ -544,8 +571,8 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                 type="button"
                 onClick={() => {
                   setSearchCapacity("");
-                  setSearchStart("");
-                  setSearchEnd("");
+                  setSearchStartTime("");
+                  setSearchEndTime("");
                 }}
                 className="text-neutral-500 underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200"
               >
@@ -558,6 +585,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
               )}
             </>
           )}
+          <p className="w-full text-neutral-400">（{dateLabel}の空き状況で絞り込みます）</p>
         </div>
       )}
 
@@ -665,7 +693,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                   fill={
                     !room.matchesSearch
                       ? "var(--room-muted)"
-                      : room.isOccupiedNow
+                      : room.isBusy
                         ? "var(--room-occupied)"
                         : "var(--room-available)"
                   }
@@ -690,8 +718,10 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                       ? "追加予定"
                       : !room.matchesSearch
                         ? "条件外"
-                        : room.isOccupiedNow
-                          ? "使用中"
+                        : room.isBusy
+                          ? data.isToday
+                            ? "使用中"
+                            : "予約あり"
                           : "空き"}
                 </text>
                 {isEditMode && !room.markedForDelete && (
@@ -757,9 +787,9 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                 key={selectedRoom.id}
                 room={selectedRoom}
                 onClose={() => setSelectedRoomId(null)}
-                initialBookingRange={
-                  hasValidSearchRange ? { start: searchStart, end: searchEnd } : undefined
-                }
+                dateLabel={dateLabel}
+                isToday={data.isToday}
+                initialBookingRange={defaultBookingRange}
               />
             </div>
           )}
@@ -777,7 +807,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                 : "mt-2 text-sm text-neutral-400"
             }
           >
-            会議室をクリックすると、本日の予約状況と予約フォームが表示されます。
+            会議室をクリックすると、{dateLabel}の予約状況と予約フォームが表示されます。
           </p>
         )}
 
