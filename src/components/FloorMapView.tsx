@@ -109,10 +109,19 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
     }),
   ];
 
+  // フロア図（背景画像）があるフロアは、画像の実ピクセルサイズをそのまま
+  // 表示エリア＝1フロアとして扱う（拡大縮小せず、はみ出す分はスクロールする）。
+  // 画像が無いフロアは、表示エリア自体を1フロア分として使い、部屋の配置範囲に
+  // 合わせて拡大縮小して表示する（スクロールは不要）。
+  const floorPlanWidth = selectedFloor?.floorPlanImageWidth ?? null;
+  const floorPlanHeight = selectedFloor?.floorPlanImageHeight ?? null;
+  const hasFloorPlanImage = Boolean(
+    selectedFloor?.floorPlanImageUrl && floorPlanWidth && floorPlanHeight,
+  );
+
   const viewBox = (() => {
-    // フロア図（背景画像）があれば、座標系を画像のピクセルサイズに合わせる
-    if (selectedFloor?.floorPlanImageWidth && selectedFloor?.floorPlanImageHeight) {
-      return `0 0 ${selectedFloor.floorPlanImageWidth} ${selectedFloor.floorPlanImageHeight}`;
+    if (floorPlanWidth && floorPlanHeight) {
+      return `0 0 ${floorPlanWidth} ${floorPlanHeight}`;
     }
     if (displayRooms.length === 0) {
       return `0 0 400 200`;
@@ -393,33 +402,39 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
 
       <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr]">
         {/*
-          フロア図画像の有無・部屋の配置範囲によってviewBoxの縦横比が変わり、
-          そのままだと画面の高さが表示のたびに変動してしまう。
-          外側をaspect-ratio固定のコンテナにし、svg自体は絶対配置でその中に
-          収める（preserveAspectRatio="xMidYMid meet"でレターボックスする）ことで、
-          表示領域のサイズを常に一定に保つ。
-
           min-w-0が無いと、CSS Gridのfrトラックは中身の最小コンテンツ幅を
           考慮してしまい、右側パネルの中身（ボタンやバッジなど）の幅次第で
-          このカラム自体の幅が押し縮められ、結果としてaspect-ratioで決まる
-          高さまで変動してしまう。両カラムにmin-w-0を付けて、fr比率どおりの
-          幅で固定する。
+          このカラム自体の幅が押し縮められてしまう。両カラムにmin-w-0を付けて、
+          fr比率どおりの幅で固定する。
+
+          フロア図画像があるフロアは、画像の実ピクセルサイズをそのまま
+          表示エリア＝1フロアとして扱う（拡大縮小せず、はみ出す分は
+          overflow-autoでスクロールする）。画像が無いフロアは、表示エリア
+          自体を1フロア分として使い、部屋の配置範囲に合わせてaspect-ratio
+          固定のコンテナ内で拡大縮小して表示する（スクロール不要）。
         */}
-        <div className="relative aspect-[4/3] w-full min-w-0 overflow-hidden rounded-lg border border-black/10 bg-neutral-50 dark:border-white/10 dark:bg-neutral-950">
+        <div
+          className={
+            hasFloorPlanImage
+              ? "max-h-[480px] w-full min-w-0 overflow-auto rounded-lg border border-black/10 dark:border-white/10"
+              : "relative aspect-[4/3] w-full min-w-0 overflow-hidden rounded-lg border border-black/10 bg-neutral-50 dark:border-white/10 dark:bg-neutral-950"
+          }
+        >
           <svg
             ref={svgRef}
             viewBox={viewBox}
-            preserveAspectRatio="xMidYMid meet"
-            className="absolute inset-0 h-full w-full"
+            width={hasFloorPlanImage ? (floorPlanWidth ?? undefined) : undefined}
+            height={hasFloorPlanImage ? (floorPlanHeight ?? undefined) : undefined}
+            preserveAspectRatio={hasFloorPlanImage ? undefined : "xMidYMid meet"}
+            className={hasFloorPlanImage ? "block" : "absolute inset-0 h-full w-full"}
           >
-          {selectedFloor?.floorPlanImageUrl && (
+          {hasFloorPlanImage && selectedFloor?.floorPlanImageUrl && (
             <image
               href={selectedFloor.floorPlanImageUrl}
               x={0}
               y={0}
-              width={selectedFloor.floorPlanImageWidth ?? undefined}
-              height={selectedFloor.floorPlanImageHeight ?? undefined}
-              preserveAspectRatio="xMidYMid slice"
+              width={floorPlanWidth ?? undefined}
+              height={floorPlanHeight ?? undefined}
             />
           )}
           {displayRooms.map((room) => {
