@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { saveFloorLayoutAction, type NewRoomInput } from "@/app/actions";
 import type { FloorMapData, RoomWithReservations } from "@/lib/queries/getFloorMapData";
 import { FloorPlanUploadForm } from "./FloorPlanUploadForm";
@@ -58,18 +58,69 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
   const hasPendingChanges =
     Object.keys(pendingLayout).length > 0 || draftRooms.length > 0 || pendingDeleteIds.size > 0;
 
-  const viewBox = useMemo(() => {
+  // SVG描画用に、既存の会議室と追加中の会議室を1つのリストにまとめる。
+  // ドラッグ移動・リサイズ中の座標（pendingLayout）をここで反映するため、
+  // viewBoxの計算（このすぐ下）もこのdisplayRoomsを基準にする。
+  // selectedFloor.rooms（サーバーから取得した保存済みの状態）だけを見て
+  // viewBoxを決めると、保存前の編集中の位置・サイズがviewBoxに反映されず、
+  // 「保存前は表示がずれる／保存後に正しいサイズに直る」という不具合になる。
+  const displayRooms = [
+    ...(selectedFloor?.rooms.map((room) => {
+      const pending = pendingLayout[room.id];
+      const baseLayout: RoomLayout = {
+        x: room.positionX,
+        y: room.positionY,
+        width: room.width,
+        height: room.height,
+      };
+      return {
+        id: room.id,
+        name: room.name,
+        x: pending ? pending.x : baseLayout.x,
+        y: pending ? pending.y : baseLayout.y,
+        width: pending ? pending.width : baseLayout.width,
+        height: pending ? pending.height : baseLayout.height,
+        isOccupiedNow: room.isOccupiedNow,
+        isDraft: false,
+        markedForDelete: pendingDeleteIds.has(room.id),
+        baseLayout,
+      };
+    }) ?? []),
+    ...draftRooms.map((draft) => {
+      const pending = pendingLayout[draft.tempId];
+      const baseLayout: RoomLayout = {
+        x: draft.positionX,
+        y: draft.positionY,
+        width: draft.width,
+        height: draft.height,
+      };
+      return {
+        id: draft.tempId,
+        name: draft.name || "（名称未設定）",
+        x: pending ? pending.x : baseLayout.x,
+        y: pending ? pending.y : baseLayout.y,
+        width: pending ? pending.width : baseLayout.width,
+        height: pending ? pending.height : baseLayout.height,
+        isOccupiedNow: false,
+        isDraft: true,
+        markedForDelete: false,
+        baseLayout,
+      };
+    }),
+  ];
+
+  const viewBox = (() => {
     // フロア図（背景画像）があれば、座標系を画像のピクセルサイズに合わせる
     if (selectedFloor?.floorPlanImageWidth && selectedFloor?.floorPlanImageHeight) {
       return `0 0 ${selectedFloor.floorPlanImageWidth} ${selectedFloor.floorPlanImageHeight}`;
     }
-    if (!selectedFloor || selectedFloor.rooms.length === 0) {
+    if (displayRooms.length === 0) {
       return `0 0 400 200`;
     }
-    const maxX = Math.max(...selectedFloor.rooms.map((r) => r.positionX + r.width));
-    const maxY = Math.max(...selectedFloor.rooms.map((r) => r.positionY + r.height));
+    const maxX = Math.max(...displayRooms.map((r) => r.x + r.width));
+    const maxY = Math.max(...displayRooms.map((r) => r.y + r.height));
     return `0 0 ${maxX + PADDING} ${maxY + PADDING}`;
-  }, [selectedFloor]);
+  })();
 
   const selectedRoom: RoomWithReservations | undefined = selectedFloor?.rooms.find(
     (r) => r.id === selectedRoomId,
@@ -265,52 +316,6 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
   function handleDiscard() {
     resetPendingEdits();
   }
-
-  // SVG描画用に、既存の会議室と追加中の会議室を1つのリストにまとめる
-  const displayRooms = [
-    ...(selectedFloor?.rooms.map((room) => {
-      const pending = pendingLayout[room.id];
-      const baseLayout: RoomLayout = {
-        x: room.positionX,
-        y: room.positionY,
-        width: room.width,
-        height: room.height,
-      };
-      return {
-        id: room.id,
-        name: room.name,
-        x: pending ? pending.x : baseLayout.x,
-        y: pending ? pending.y : baseLayout.y,
-        width: pending ? pending.width : baseLayout.width,
-        height: pending ? pending.height : baseLayout.height,
-        isOccupiedNow: room.isOccupiedNow,
-        isDraft: false,
-        markedForDelete: pendingDeleteIds.has(room.id),
-        baseLayout,
-      };
-    }) ?? []),
-    ...draftRooms.map((draft) => {
-      const pending = pendingLayout[draft.tempId];
-      const baseLayout: RoomLayout = {
-        x: draft.positionX,
-        y: draft.positionY,
-        width: draft.width,
-        height: draft.height,
-      };
-      return {
-        id: draft.tempId,
-        name: draft.name || "（名称未設定）",
-        x: pending ? pending.x : baseLayout.x,
-        y: pending ? pending.y : baseLayout.y,
-        width: pending ? pending.width : baseLayout.width,
-        height: pending ? pending.height : baseLayout.height,
-        isOccupiedNow: false,
-        isDraft: true,
-        markedForDelete: false,
-        baseLayout,
-      };
-    }),
-  ];
 
   return (
     <div>
