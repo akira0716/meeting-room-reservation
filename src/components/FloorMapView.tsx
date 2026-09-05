@@ -325,11 +325,20 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
       {isAdmin && selectedFloor && <FloorPlanUploadForm floorId={selectedFloor.id} />}
 
       <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr]">
-        <svg
-          ref={svgRef}
-          viewBox={viewBox}
-          className="w-full rounded-lg border border-black/10 bg-neutral-50 dark:border-white/10 dark:bg-neutral-950"
-        >
+        {/*
+          フロア図画像の有無・部屋の配置範囲によってviewBoxの縦横比が変わり、
+          そのままだと画面の高さが表示のたびに変動してしまう。
+          外側をaspect-ratio固定のコンテナにし、svg自体は絶対配置でその中に
+          収める（preserveAspectRatio="xMidYMid meet"でレターボックスする）ことで、
+          表示領域のサイズを常に一定に保つ。
+        */}
+        <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg border border-black/10 bg-neutral-50 dark:border-white/10 dark:bg-neutral-950">
+          <svg
+            ref={svgRef}
+            viewBox={viewBox}
+            preserveAspectRatio="xMidYMid meet"
+            className="absolute inset-0 h-full w-full"
+          >
           {selectedFloor?.floorPlanImageUrl && (
             <image
               href={selectedFloor.floorPlanImageUrl}
@@ -447,7 +456,8 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
               </g>
             );
           })}
-        </svg>
+          </svg>
+        </div>
 
         <div>
           {isEditMode ? (
@@ -465,7 +475,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                   <p className="text-xs font-medium text-neutral-500">
                     追加予定の会議室（ドラッグで配置調整可）
                   </p>
-                  <ul className="mt-1 space-y-2">
+                  <ul className="mt-1 max-h-56 space-y-2 overflow-y-auto">
                     {draftRooms.map((draft) => (
                       <li
                         key={draft.tempId}
