@@ -9,7 +9,7 @@
  */
 import { eq } from "drizzle-orm";
 import { db } from "./client";
-import { organizations, buildings, floors, rooms, reservations } from "./schema";
+import { organizations, buildings, floors, rooms, reservations, users } from "./schema";
 
 async function main() {
   console.log("組織を確認しています...");
@@ -102,6 +102,15 @@ async function main() {
     .returning();
 
   console.log("予約データを投入しています...");
+  // 予約者はこの組織の誰か1人（いれば）に紐づけておく。usersは意図的に触らない方針
+  // （上記コメント参照）のため、既存の行を探すだけで新規作成はしない
+  const [demoUser] = await db
+    .select()
+    .from(users)
+    .where(eq(users.organizationId, org.id))
+    .limit(1);
+  const createdByUserId = demoUser?.id ?? null;
+
   const now = new Date();
   const addMinutes = (base: Date, minutes: number) =>
     new Date(base.getTime() + minutes * 60_000);
@@ -111,7 +120,7 @@ async function main() {
     {
       roomId: roomA.id,
       title: "定例ミーティング",
-      bookerName: "山田 太郎",
+      createdByUserId,
       startAt: addMinutes(now, -15),
       endAt: addMinutes(now, 45),
     },
@@ -119,7 +128,7 @@ async function main() {
     {
       roomId: roomB.id,
       title: "採用面接",
-      bookerName: "佐藤 花子",
+      createdByUserId,
       startAt: addMinutes(now, 120),
       endAt: addMinutes(now, 180),
     },
@@ -127,7 +136,7 @@ async function main() {
     {
       roomId: roomC.id,
       title: "全社キックオフ",
-      bookerName: "鈴木 一郎",
+      createdByUserId,
       startAt: addMinutes(now, 24 * 60),
       endAt: addMinutes(now, 24 * 60 + 90),
     },
@@ -136,7 +145,7 @@ async function main() {
     {
       roomId: roomE.id,
       title: "1on1",
-      bookerName: "田中 次郎",
+      createdByUserId,
       startAt: addMinutes(now, 60),
       endAt: addMinutes(now, 90),
     },

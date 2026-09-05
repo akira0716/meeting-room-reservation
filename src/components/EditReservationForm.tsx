@@ -62,12 +62,13 @@ export function EditReservationForm({
             className="mt-0.5 w-full rounded border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/10"
           />
         </div>
+        <p className="text-xs text-neutral-400">予約者：{reservation.bookerName}</p>
         <div>
-          <label className="block text-xs font-medium text-neutral-500">予約者名</label>
-          <input
-            name="bookerName"
-            required
-            defaultValue={reservation.bookerName}
+          <label className="block text-xs font-medium text-neutral-500">備考（任意・URLも可）</label>
+          <textarea
+            name="note"
+            rows={2}
+            defaultValue={reservation.note ?? ""}
             className="mt-0.5 w-full rounded border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/10"
           />
         </div>

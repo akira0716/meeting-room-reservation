@@ -2,7 +2,10 @@ export type Reservation = {
   id: string;
   roomId: string;
   title: string;
-  bookerName: string;
+  /** 予約作成時のログイン中ユーザー（固定・変更不可）。ユーザーが組織から削除されるとnullになる */
+  createdByUserId: string | null;
+  /** 任意の備考欄（旧bookerName廃止に伴い追加。URL等も入力可） */
+  note: string | null;
   startAt: Date;
   endAt: Date;
   version: number;
@@ -10,9 +13,8 @@ export type Reservation = {
 
 export type NewReservation = Omit<Reservation, "id" | "version">;
 
-export type ReservationPatch = Partial<
-  Pick<Reservation, "title" | "bookerName" | "startAt" | "endAt">
->;
+/** 更新時にcreatedByUserIdは含まない（予約者は作成時のまま変更不可のため） */
+export type ReservationPatch = Partial<Pick<Reservation, "title" | "note" | "startAt" | "endAt">>;
 
 /**
  * 予約データへのアクセスを抽象化するインターフェース。
