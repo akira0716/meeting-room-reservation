@@ -96,6 +96,10 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
 
   function handlePointerDown(e: React.PointerEvent<SVGGElement>, id: string, base: Position) {
     if (!isEditMode) return;
+    // 削除／元に戻すボタン上でのpointerdownはドラッグ扱いにしない。
+    // setPointerCaptureをここで取ってしまうと、後続のclickイベントの発火先が
+    // このg要素側に変わってしまい、ボタン自体のonClickが発火しなくなるため。
+    if ((e.target as Element).closest("[data-no-drag]")) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const svgPoint = toSvgPoint(e.clientX, e.clientY);
     const current = pendingPositions[id] ?? base;
@@ -408,6 +412,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                 </text>
                 {isEditMode && !room.markedForDelete && (
                   <text
+                    data-no-drag
                     x={room.x + room.width - 10}
                     y={room.y + 14}
                     textAnchor="middle"
@@ -426,6 +431,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                 )}
                 {isEditMode && room.markedForDelete && (
                   <text
+                    data-no-drag
                     x={room.x + room.width / 2}
                     y={room.y - 6}
                     textAnchor="middle"
