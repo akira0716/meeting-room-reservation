@@ -12,7 +12,14 @@ const timeFormatter = new Intl.DateTimeFormat("ja-JP", {
 
 const initialState: CreateReservationState = { status: "idle" };
 
-function ReservationRow({ reservation }: { reservation: RoomReservation }) {
+function ReservationRow({
+  reservation,
+  canModify,
+}: {
+  reservation: RoomReservation;
+  /** この予約を編集・削除できるか（予約者本人または管理者のみ）。falseなら「編集」ボタン自体を出さない */
+  canModify: boolean;
+}) {
   const [showEdit, setShowEdit] = useState(false);
 
   if (showEdit) {
@@ -41,13 +48,15 @@ function ReservationRow({ reservation }: { reservation: RoomReservation }) {
           <p className="text-xs text-neutral-400">{reservation.note}</p>
         )}
       </div>
-      <button
-        type="button"
-        onClick={() => setShowEdit(true)}
-        className="shrink-0 text-xs text-neutral-500 underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200"
-      >
-        編集
-      </button>
+      {canModify && (
+        <button
+          type="button"
+          onClick={() => setShowEdit(true)}
+          className="shrink-0 text-xs text-neutral-500 underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200"
+        >
+          編集
+        </button>
+      )}
     </li>
   );
 }
@@ -157,6 +166,8 @@ export function RoomDetailPanel({
   onClose,
   dateLabel,
   isToday,
+  isAdmin,
+  currentMemberId,
   initialBookingRange,
 }: {
   room: RoomWithReservations;
@@ -167,6 +178,10 @@ export function RoomDetailPanel({
   /** dateLabelが今日を指しているか。falseの場合、「使用中」ではなく「予約あり」と表示する
    *  （過去・未来の日付には「今まさに使用中か」という概念が無いため） */
   isToday: boolean;
+  /** 管理者は他人の予約も編集・削除できる */
+  isAdmin: boolean;
+  /** ログイン中メンバーのID。予約の作成者と一致する場合のみ編集・削除できる */
+  currentMemberId: string;
   /** 予約フォームの開始・終了の初期値（datetime-local文字列） */
   initialBookingRange: { start: string; end: string };
 }) {
@@ -210,7 +225,11 @@ export function RoomDetailPanel({
         // 予約件数によってパネルの高さが変動しないよう、一定件数を超えたら内側でスクロールさせる
         <ul className="mt-1 max-h-56 space-y-1 overflow-y-auto">
           {room.reservations.map((r) => (
-            <ReservationRow key={r.id} reservation={r} />
+            <ReservationRow
+              key={r.id}
+              reservation={r}
+              canModify={isAdmin || r.createdByUserId === currentMemberId}
+            />
           ))}
         </ul>
       )}

@@ -3,6 +3,7 @@
 import { eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getAuthContext } from "@/lib/auth/getAuthContext";
+import type { OrgMember } from "@/lib/auth/types";
 import { db } from "@/lib/db/client";
 import { buildings, floors, reservations, rooms } from "@/lib/db/schema";
 import { DrizzleReservationRepository } from "@/lib/repositories/drizzleReservationRepository";
@@ -33,23 +34,38 @@ async function isRoomInOrganization(roomId: string, organizationId: string): Pro
 }
 
 /**
- * 指定した予約が、自分の組織の会議室に紐づくものかを検証する
+ * 指定した予約が、自分の組織の会議室に紐づくものかどうかと、その予約の作成者を取得する
  * （reservations → rooms → floors → buildings と辿る）。
- * 他組織の予約IDを直接指定されても編集・削除できてしまわないようにするためのチェック。
+ * 他組織の予約IDを直接指定されても編集・削除できてしまわないようにするためのチェックと、
+ * 編集・削除の権限判定（本人または管理者のみ）の両方に使う。
  */
-async function isReservationInOrganization(
+async function findReservationForModification(
   reservationId: string,
-  organizationId: string,
-): Promise<boolean> {
+): Promise<{ organizationId: string; createdByUserId: string | null } | null> {
   const [reservation] = await db
-    .select({ organizationId: buildings.organizationId })
+    .select({
+      organizationId: buildings.organizationId,
+      createdByUserId: reservations.createdByUserId,
+    })
     .from(reservations)
     .innerJoin(rooms, eq(reservations.roomId, rooms.id))
     .innerJoin(floors, eq(rooms.floorId, floors.id))
     .innerJoin(buildings, eq(floors.buildingId, buildings.id))
     .where(eq(reservations.id, reservationId))
     .limit(1);
-  return reservation?.organizationId === organizationId;
+  return reservation ?? null;
+}
+
+/**
+ * 予約の編集・削除は「予約者本人」または「管理者」のみ許可する。
+ * 予約者が組織から削除された予約（createdByUserIdがnull）は本人が存在しないため、
+ * 管理者のみが操作できる。
+ */
+function canModifyReservation(
+  member: OrgMember,
+  reservation: { createdByUserId: string | null },
+): boolean {
+  return member.role === "admin" || reservation.createdByUserId === member.id;
 }
 
 export type CreateReservationState =
@@ -154,8 +170,13 @@ export async function updateReservationAction(
   }
 
   // 他組織の予約IDを直接指定されても編集できないよう、自分の組織の予約かを検証する
-  if (!(await isReservationInOrganization(id, member.organizationId))) {
+  const target = await findReservationForModification(id);
+  if (!target || target.organizationId !== member.organizationId) {
     return { status: "error", message: "対象の予約が見つかりません" };
+  }
+  // 編集できるのは予約者本人または管理者のみ
+  if (!canModifyReservation(member, target)) {
+    return { status: "error", message: "この予約を編集できるのは予約者本人または管理者のみです" };
   }
 
   const fields = parseReservationFields(formData);
@@ -196,8 +217,13 @@ export async function deleteReservationAction(
   }
 
   // 他組織の予約IDを直接指定されても削除できないよう、自分の組織の予約かを検証する
-  if (!(await isReservationInOrganization(id, member.organizationId))) {
+  const target = await findReservationForModification(id);
+  if (!target || target.organizationId !== member.organizationId) {
     return { status: "error", message: "対象の予約が見つかりません" };
+  }
+  // 削除できるのは予約者本人または管理者のみ
+  if (!canModifyReservation(member, target)) {
+    return { status: "error", message: "この予約を削除できるのは予約者本人または管理者のみです" };
   }
 
   const repo = new DrizzleReservationRepository();

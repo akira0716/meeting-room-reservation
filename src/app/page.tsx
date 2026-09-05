@@ -79,7 +79,11 @@ export default async function Home({
       <div className="mb-4">
         <DateNav dateKey={data.date} isToday={data.isToday} />
       </div>
-      <FloorMapView data={data} isAdmin={member.role === "admin"} />
+      <FloorMapView
+        data={data}
+        isAdmin={member.role === "admin"}
+        currentMemberId={member.id}
+      />
     </main>
   );
 }

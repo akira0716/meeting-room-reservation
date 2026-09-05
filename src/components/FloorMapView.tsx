@@ -39,7 +39,15 @@ function createTempId(): string {
     : `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: boolean }) {
+export function FloorMapView({
+  data,
+  isAdmin,
+  currentMemberId,
+}: {
+  data: FloorMapData;
+  isAdmin: boolean;
+  currentMemberId: string;
+}) {
   const [selectedFloorId, setSelectedFloorId] = useState(data.floors[0]?.id);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -789,6 +797,8 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                 onClose={() => setSelectedRoomId(null)}
                 dateLabel={dateLabel}
                 isToday={data.isToday}
+                isAdmin={isAdmin}
+                currentMemberId={currentMemberId}
                 initialBookingRange={defaultBookingRange}
               />
             </div>
