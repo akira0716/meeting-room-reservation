@@ -4,6 +4,9 @@
 
 ## 優先度：高
 
+### セキュリティ（マルチテナント化に伴い発見）
+- [ ] `createReservationAction`/`updateReservationAction`/`deleteReservationAction`（[actions.ts](./src/app/actions.ts)）が、対象の会議室・予約が操作者の所属組織のものかを検証していない。組織が1つしかなかった頃は問題が表面化しなかったが、複数組織が存在する今は、他組織のroomId/予約IDを直接指定されると操作できてしまう可能性がある。`saveFloorLayoutAction`・フロア図アップロードAPIと同じ「組織所有チェック」パターンを追加する必要がある
+
 ### デプロイ（ポートフォリオとして公開するために必須）
 - [x] Vercelへデプロイ：https://meeting-room-reservation-theta.vercel.app/login
 - [x] 環境変数（`DATABASE_URL` / `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` / `SUPABASE_SECRET_KEY`）をVercel側に設定
@@ -57,8 +60,9 @@
 - [x] フロア図アップロードAPI（`/api/floors/[floorId]/image`）と暫定アップロードUI
 - [x] フロアマップSVGの背景に画像を表示（座標系を画像ピクセルサイズに合わせる）
 - [x] 会議室をドラッグして配置できる編集画面（管理者向け「編集モード」トグル、フロアマップ画面に統合）。ドラッグ位置はローカルに保持し「保存」ボタンでまとめて反映する方式。実機確認済み
+- [x] **会議室の追加・削除UI**（`feature/room-management`ブランチ）：編集モードに「＋ 会議室を追加」ボタンを追加し、名前・定員を入力してドラッグ配置、既存の会議室は右上の「×」で削除予定にできる（元に戻す可）。すべて既存の「保存」ボタンでの一括反映方式に統合し、`updateRoomPositionsAction`を`saveFloorLayoutAction`に拡張（移動・追加・削除をまとめて1トランザクションで処理）
+  - あわせて**セキュリティ修正**：このアクションが対象フロア・会議室が操作者の所属組織のものかを検証していなかった（マルチテナント化前は組織が1つしかなく問題が表面化しなかった）。フロア図アップロードAPIと同じ「組織所有チェック」パターンを追加した
 - [ ] リサイズ機能（現状は移動のみ。サイズ変更は次のステップ）
-- [ ] 新規会議室の追加・削除をUIから行えるようにする
 
 ## 優先度：低（余力があれば）
 
