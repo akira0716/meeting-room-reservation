@@ -331,8 +331,14 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
           外側をaspect-ratio固定のコンテナにし、svg自体は絶対配置でその中に
           収める（preserveAspectRatio="xMidYMid meet"でレターボックスする）ことで、
           表示領域のサイズを常に一定に保つ。
+
+          min-w-0が無いと、CSS Gridのfrトラックは中身の最小コンテンツ幅を
+          考慮してしまい、右側パネルの中身（ボタンやバッジなど）の幅次第で
+          このカラム自体の幅が押し縮められ、結果としてaspect-ratioで決まる
+          高さまで変動してしまう。両カラムにmin-w-0を付けて、fr比率どおりの
+          幅で固定する。
         */}
-        <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg border border-black/10 bg-neutral-50 dark:border-white/10 dark:bg-neutral-950">
+        <div className="relative aspect-[4/3] w-full min-w-0 overflow-hidden rounded-lg border border-black/10 bg-neutral-50 dark:border-white/10 dark:bg-neutral-950">
           <svg
             ref={svgRef}
             viewBox={viewBox}
@@ -459,7 +465,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
           </svg>
         </div>
 
-        <div>
+        <div className="min-w-0">
           {isEditMode ? (
             <div className="space-y-4 text-sm">
               <button
