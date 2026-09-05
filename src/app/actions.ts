@@ -4,7 +4,7 @@ import { eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getAuthContext } from "@/lib/auth/getAuthContext";
 import { db } from "@/lib/db/client";
-import { buildings, floors, rooms } from "@/lib/db/schema";
+import { buildings, floors, reservations, rooms } from "@/lib/db/schema";
 import { DrizzleReservationRepository } from "@/lib/repositories/drizzleReservationRepository";
 import {
   createReservation,
@@ -15,6 +15,42 @@ import {
 
 /** 会議室の最小サイズ（px相当）。誤操作で潰れたサイズにならないようサーバー側でもクランプする */
 const MIN_ROOM_SIZE = 20;
+
+/**
+ * 指定した会議室が、自分の組織のものかを検証する（rooms → floors → buildings と辿る）。
+ * 他組織のroomIdを直接指定されても予約を作成できてしまわないようにするためのチェック
+ * （saveFloorLayoutAction・フロア図アップロードAPIと同じ「組織所有チェック」パターン）。
+ */
+async function isRoomInOrganization(roomId: string, organizationId: string): Promise<boolean> {
+  const [room] = await db
+    .select({ organizationId: buildings.organizationId })
+    .from(rooms)
+    .innerJoin(floors, eq(rooms.floorId, floors.id))
+    .innerJoin(buildings, eq(floors.buildingId, buildings.id))
+    .where(eq(rooms.id, roomId))
+    .limit(1);
+  return room?.organizationId === organizationId;
+}
+
+/**
+ * 指定した予約が、自分の組織の会議室に紐づくものかを検証する
+ * （reservations → rooms → floors → buildings と辿る）。
+ * 他組織の予約IDを直接指定されても編集・削除できてしまわないようにするためのチェック。
+ */
+async function isReservationInOrganization(
+  reservationId: string,
+  organizationId: string,
+): Promise<boolean> {
+  const [reservation] = await db
+    .select({ organizationId: buildings.organizationId })
+    .from(reservations)
+    .innerJoin(rooms, eq(reservations.roomId, rooms.id))
+    .innerJoin(floors, eq(rooms.floorId, floors.id))
+    .innerJoin(buildings, eq(floors.buildingId, buildings.id))
+    .where(eq(reservations.id, reservationId))
+    .limit(1);
+  return reservation?.organizationId === organizationId;
+}
 
 export type CreateReservationState =
   | { status: "idle" }
@@ -73,6 +109,11 @@ export async function createReservationAction(
     return { status: "error", message: "会議室を指定してください" };
   }
 
+  // 他組織のroomIdを直接指定されても予約できないよう、自分の組織の会議室かを検証する
+  if (!(await isRoomInOrganization(roomId, member.organizationId))) {
+    return { status: "error", message: "指定された会議室が見つかりません" };
+  }
+
   const fields = parseReservationFields(formData);
   if (!fields.ok) {
     return { status: "error", message: fields.message };
@@ -111,6 +152,11 @@ export async function updateReservationAction(
     return { status: "error", message: "編集対象の予約が特定できません" };
   }
 
+  // 他組織の予約IDを直接指定されても編集できないよう、自分の組織の予約かを検証する
+  if (!(await isReservationInOrganization(id, member.organizationId))) {
+    return { status: "error", message: "対象の予約が見つかりません" };
+  }
+
   const fields = parseReservationFields(formData);
   if (!fields.ok) {
     return { status: "error", message: fields.message };
@@ -146,6 +192,11 @@ export async function deleteReservationAction(
   const expectedVersion = Number(formData.get("version"));
   if (!id || Number.isNaN(expectedVersion)) {
     return { status: "error", message: "削除対象の予約が特定できません" };
+  }
+
+  // 他組織の予約IDを直接指定されても削除できないよう、自分の組織の予約かを検証する
+  if (!(await isReservationInOrganization(id, member.organizationId))) {
+    return { status: "error", message: "対象の予約が見つかりません" };
   }
 
   const repo = new DrizzleReservationRepository();
