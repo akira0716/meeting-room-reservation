@@ -583,7 +583,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
             ref={mapContainerRef}
             className={
               hasFloorPlanImage
-                ? "no-scrollbar max-h-[480px] w-full overflow-auto rounded-lg border border-black/10 dark:border-white/10"
+                ? "no-scrollbar max-h-[60vh] w-full overflow-auto rounded-lg border border-black/10 dark:border-white/10"
                 : "aspect-[4/3] w-full overflow-hidden rounded-lg border border-black/10 bg-neutral-50 dark:border-white/10 dark:bg-neutral-950"
             }
           >
@@ -765,8 +765,18 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
           )}
         </div>
 
-        {!isEditMode && !selectedRoom && (
-          <p className="mt-2 text-sm text-neutral-400">
+        {!isEditMode && (
+          // 会議室選択の有無でこの行の高さが変わると、ページ全体の高さが
+          // わずかに変動し、ブラウザの縦スクロールバーが出たり消えたり
+          // することでレイアウトがガタつく。selectedRoomの有無に関わらず
+          // 常にこの行自体は描画し、中身の見た目だけをinvisibleで切り替える。
+          <p
+            className={
+              selectedRoom
+                ? "invisible mt-2 text-sm text-neutral-400"
+                : "mt-2 text-sm text-neutral-400"
+            }
+          >
             会議室をクリックすると、本日の予約状況と予約フォームが表示されます。
           </p>
         )}
