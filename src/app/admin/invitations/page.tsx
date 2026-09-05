@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth/getAuthContext";
 import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
+import { AdminNav } from "@/components/AdminNav";
 import { CreateInvitationForm } from "@/components/CreateInvitationForm";
 
 const roleLabel: Record<string, string> = { admin: "管理者", member: "一般メンバー" };
@@ -33,7 +34,8 @@ export default async function AdminInvitationsPage() {
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-8">
-      <h1 className="text-xl font-semibold">メンバー招待</h1>
+      <AdminNav current="/admin/invitations" />
+      <h1 className="mt-4 text-xl font-semibold">メンバー招待</h1>
 
       <section className="mt-6">
         <h2 className="text-sm font-medium text-neutral-500">新しいメンバーを招待</h2>
