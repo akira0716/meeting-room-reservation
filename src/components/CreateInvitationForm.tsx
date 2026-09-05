@@ -38,7 +38,7 @@ export function CreateInvitationForm() {
           type="submit"
           className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
         >
-          招待メールを送信
+          招待する
         </button>
       </form>
 
@@ -47,7 +47,7 @@ export function CreateInvitationForm() {
       )}
       {state.status === "success" && (
         <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">
-          招待メールを送信しました。メール内のリンクからサインインし、パスワードを設定すると参加が完了します。
+          招待しました。メールは送信されません。本人にログインURLを伝え、「Googleでサインイン」を押してもらってください。
         </p>
       )}
     </div>
