@@ -20,8 +20,16 @@
   - [x] **バグ修正**：`users.authUserId`が`uuid`型のままだったため、Googleの`sub`（数値文字列、UUID形式ではない）を書き込もうとしてPostgresエラーになりサインインが失敗する問題。`text`型に変更して解決（[schema.ts](./src/lib/db/schema.ts)）
   - [x] **要設定**：Google Cloud ConsoleのOAuth同意画面が「テスト」公開ステータスのままだと、テストユーザー未登録のGoogleアカウントは同意画面で401になり弾かれる問題に気づき、「本番」公開ステータスに変更して解決（スコープがemail/profile/openidのみのため審査不要）
   - 招待フローの改善案（ログインURLのコピーボタン、複数メールアドレスの一括招待）は一度実装したが、ログインURLはアプリのURLと同じで招待ごとに変わらないため「コピー機能」自体が不要と判断し撤回。一括登録も現時点では不要と判断し、1件ずつの入力に戻した
-- [ ] 本番（Vercel）側でのGoogle Cloud ConsoleリダイレクトURI登録・環境変数設定・動作確認（ローカルのみ確認済み、次にやること）
+- [x] 本番（Vercel）側でのGoogle Cloud ConsoleリダイレクトURI登録・環境変数設定・動作確認まで完了
 - [ ] （保留）Google以外のサインイン手段（フォールバック）。まずはGoogleのみで安定動作を確認してから要否を判断する
+
+### 組織のセルフサインアップ（`feature/owner-signup`ブランチで実装。管理者を増やすたびに再デプロイが必要なconfigシード方式の限界に対応）
+- [x] **重大バグ修正**：`getFloorMapData()`が「DB内の先頭の組織」を無条件に採用していた問題。組織が1つしかない前提が崩れる（＝2つ目の組織がサインアップした瞬間に他組織のデータが見えてしまう）ため、ログイン中メンバーの`organizationId`で必ず絞り込むよう修正（[getFloorMapData.ts](./src/lib/queries/getFloorMapData.ts)）
+- [x] `/signup`：組織名を入力→「Googleでサインアップ」。組織名は短命Cookie（[ownerSignup.ts](./src/lib/auth/ownerSignup.ts)）でGoogle OAuthの往復を橋渡しし、サインイン完了時（`auth.ts`の`jwt`コールバック）に`organizations`行・`users`行（role: admin）を作成する
+- [x] オンボーディング画面：組織に建物が1つも無い状態でログインすると、管理者には「最初の建物・フロアを登録」フォーム（[CreateFirstBuildingForm.tsx](./src/components/CreateFirstBuildingForm.tsx)）、一般メンバーには「管理者の設定待ち」メッセージを表示
+- [x] **バグ修正**：`/signup`で既に別組織に所属（招待中も含む）済みのメールアドレスを使うと、新規組織作成の意図を無視して既存組織にログインしてしまう問題。「1アカウント=1組織」の設計を明確化し、既存メンバーなら`/signup?error=AlreadyMember`へリダイレクトして拒否するよう修正（`signIn`コールバックの判定順序の問題だった）
+- [ ] 会議室（room）自体の追加UIは別タスク（「新規会議室の追加・削除をUIから行えるようにする」）のまま。オンボーディング直後は建物・フロアはあっても部屋が無い状態になる
+- 既存の`config/seed-admins.json`によるconfigシード方式は、最初のデモ組織の管理者ブートストラップとして引き続き利用可能（廃止していない）
 
 <details>
 <summary>旧実装（Supabase Auth、履歴として保持）</summary>

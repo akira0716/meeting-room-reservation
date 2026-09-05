@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { CreateFirstBuildingForm } from "@/components/CreateFirstBuildingForm";
 import { FloorMapView } from "@/components/FloorMapView";
 import { LogoutButton } from "@/components/LogoutButton";
 import { getAuthContext } from "@/lib/auth/getAuthContext";
@@ -23,14 +24,25 @@ export default async function Home() {
     );
   }
 
-  const data = await getFloorMapData();
+  const data = await getFloorMapData(member.organizationId);
 
   if (!data) {
+    if (member.role !== "admin") {
+      return (
+        <main className="mx-auto max-w-md px-6 py-16">
+          <p className="text-sm text-neutral-500">
+            組織の設定がまだ完了していません。管理者が建物・フロアを登録するまでお待ちください。
+          </p>
+        </main>
+      );
+    }
     return (
-      <main className="mx-auto max-w-4xl px-6 py-12">
-        <p className="text-sm text-neutral-500">
-          データがありません。<code>npm run db:seed</code> を実行してダミーデータを投入してください。
+      <main className="mx-auto max-w-sm px-6 py-16">
+        <h1 className="text-lg font-semibold">最初の建物・フロアを登録</h1>
+        <p className="mt-1 text-sm text-neutral-500">
+          会議室の追加はまだUIから行えません（近日対応予定）。まずは建物・フロアを登録してください。
         </p>
+        <CreateFirstBuildingForm />
       </main>
     );
   }
