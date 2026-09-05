@@ -5,7 +5,7 @@ export type { OrgMember };
 
 export type AuthContext = {
   /** Auth.js側の認証情報。未サインインならnull */
-  authUser: { id: string; email: string } | null;
+  authUser: { id: string; email: string; image: string | null } | null;
   /** このアプリの組織メンバーとしての情報。未サインイン、または招待されていない場合はnull */
   member: OrgMember | null;
 };
@@ -29,7 +29,13 @@ export async function getAuthContext(): Promise<AuthContext> {
   }
 
   return {
-    authUser: { id: session.member?.id ?? session.user.email, email: session.user.email },
+    authUser: {
+      id: session.member?.id ?? session.user.email,
+      email: session.user.email,
+      // Googleアカウントのプロフィール画像。Auth.jsが標準でsession.user.imageに
+      // 積んでいる値をそのまま使う（DBには保存しない。認可情報ではないため）
+      image: session.user.image ?? null,
+    },
     member: session.member ?? null,
   };
 }
