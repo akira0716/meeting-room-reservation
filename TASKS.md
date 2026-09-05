@@ -11,17 +11,31 @@
 - [x] `@types/node`のバージョン不整合でVercelビルドが失敗する問題を修正（ローカルの`--legacy-peer-deps`頼みだった箇所を根本修正）
 
 ### 認証・認可（設計は[README.md](./README.md#3-設計判断)で整理済み。上流設計の見せ場として実装した）
-- [ ] **現在、認証を設計からやり直し中**：招待メールのリダイレクト不具合とGoogle認証移行の失敗（PKCE code verifier not found）を受けて、認証方式自体を再検討する。それまでの間、`getAuthContext()`（[getAuthContext.ts](./src/lib/auth/getAuthContext.ts)）はSupabase Authを見ず、シード済み管理者を常に返すダミー実装にして認可の壁を一時的に外している（他機能はそのまま動作確認済み）
+- [x] **Auth.js（Google OAuthのみ）へ移行完了**：`feature/authjs-google-auth`ブランチで実装。Supabase Auth（メール+パスワード／Google OAuth移行）は2回とも設定依存・原因不明の不具合で頓挫したため、認証をAuth.jsに切り出し、認可（role・organization）は自前の`users`テーブルにそのまま残す構成に変更した（詳細はREADMEの「設計判断の経緯」を参照）
+  - [x] `src/auth.ts`（Auth.js設定、Google Provider、JWTセッション、`signIn`/`jwt`/`session`コールバックで`users`テーブルと突き合わせ）
+  - [x] `getAuthContext()`をAuth.jsの`auth()`ベースに書き換え（呼び出し側のインターフェースは維持、無改修で動作）
+  - [x] 招待＝`users`テーブルへの許可リスト登録のみに簡略化（メール送信は行わない。本人はURLを伝えられて「Googleでサインイン」を押すだけ）
+  - [x] 旧Supabase Auth関連コード（`/login`のパスワードフォーム、`/set-password`、`/auth/callback`、`browserClient.ts`/`serverAuthClient.ts`、`proxy.ts`）を削除
+  - [x] ローカルでGoogle Cloud ConsoleのリダイレクトURI登録・`.env`のAuth.js関連値設定・実機での動作確認（サインイン→フロアマップ表示まで確認済み）
+  - [x] **バグ修正**：`users.authUserId`が`uuid`型のままだったため、Googleの`sub`（数値文字列、UUID形式ではない）を書き込もうとしてPostgresエラーになりサインインが失敗する問題。`text`型に変更して解決（[schema.ts](./src/lib/db/schema.ts)）
+  - [x] **要設定**：Google Cloud ConsoleのOAuth同意画面が「テスト」公開ステータスのままだと、テストユーザー未登録のGoogleアカウントは同意画面で401になり弾かれる問題に気づき、「本番」公開ステータスに変更して解決（スコープがemail/profile/openidのみのため審査不要）
+  - 招待フローの改善案（ログインURLのコピーボタン、複数メールアドレスの一括招待）は一度実装したが、ログインURLはアプリのURLと同じで招待ごとに変わらないため「コピー機能」自体が不要と判断し撤回。一括登録も現時点では不要と判断し、1件ずつの入力に戻した
+- [ ] 本番（Vercel）側でのGoogle Cloud ConsoleリダイレクトURI登録・環境変数設定・動作確認（ローカルのみ確認済み、次にやること）
+- [ ] （保留）Google以外のサインイン手段（フォールバック）。まずはGoogleのみで安定動作を確認してから要否を判断する
+
+<details>
+<summary>旧実装（Supabase Auth、履歴として保持）</summary>
+
 - [x] Supabase Authのセットアップ（初回：メールリンク→パスワード設定／2回目以降：メール+パスワード）
 - [x] 招待発行API・管理ページ（`/admin/invitations`、管理者が招待メールアドレス＋roleを指定）
 - [x] 招待メールの自動送信（`auth.admin.inviteUserByEmail`）。旧・自前トークン方式(`/invite/[token]`)は廃止し、`invitations`テーブルも削除
 - [x] 招待メール経由のサインイン・組織参加フロー（メールのリンク→`/auth/callback`→`getAuthContext()`が自動でusers行に紐付け→`/set-password`）
-- [x] 初期管理者のconfigファイルシード実装（`config/seed-admins.json` + `npm run auth:seed-admins`）
 - [x] admin/member権限に応じたAPIの認可チェック（フロア図アップロードは管理者のみ、予約作成はサインイン済み組織メンバーのみ）
-- [x] **バグ修正**：Supabase管理API発行リンクの認証情報がURLハッシュで返る問題。`/auth/callback`をサーバーRoute Handler→クライアントページに書き換えて対応（[README](./README.md#3-設計判断)に詳細）
+- [x] **バグ修正**：Supabase管理API発行リンクの認証情報がURLハッシュで返る問題。`/auth/callback`をサーバーRoute Handler→クライアントページに書き換えて対応
 - [x] **要設定**：SupabaseダッシュボードのRedirect URLsが未設定だとサインインが失敗する問題に気づき、READMEのセットアップ手順に追記
-- [ ] パスワード再設定（forgot password）専用の導線・文言（現状は「初めての方はこちら」と共用）
-- [ ] Supabaseのメール送信レート制限（無料枠は非常に少なく、開発中に実際に上限に達した）対策。カスタムSMTP設定、またはUIに分かりやすい案内を追加
+- 未解決のまま終了：パスワード再設定専用の導線、Supabaseのメール送信レート制限対策、Google OAuth移行時のPKCE code verifier不具合
+
+</details>
 
 ## 優先度：中
 

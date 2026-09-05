@@ -36,16 +36,16 @@ lib/repositories/         … データアクセス（インターフェース�
 ```
 
 ### 認証・認可
-- 認証はSupabase Authに乗せ、パスワード管理は自前で行わない（生パスワードはこのアプリのコード・DBを一切通らない）
-- サインインは初回のみメールリンクでの本人確認→パスワード設定、2回目以降はメール+パスワードの2段階
-  - 招待：管理者が管理ページからメールアドレス＋roleを指定すると、`users`テーブルにstatus:"invited"の行を先に作り、Supabase Authの招待メール（`auth.admin.inviteUserByEmail`）を自動送信する。管理者がURLを手動で共有する必要はない
-  - 招待された人がメール内のリンクを踏んでサインインすると、`getAuthContext()`が「authUserId未設定・同じメールアドレスのusers行」を自動的に見つけて紐付け、activeにする（招待受諾専用のページは不要）
-  - 初期管理者はconfigファイルでシード（「最初の管理者を誰が招待するか」という鶏卵問題の解消）→同じ仕組みで初回サインイン→パスワード設定
-  - 「初めての方・パスワードを忘れた方はこちら」の導線は、パスワード再設定（forgot password）としても使い回せる
+- 認証はAuth.js（Google OAuthのみ）に任せ、パスワード管理は自前で行わない
+- 認証（このアプリを操作しているのがGoogleアカウント本人か）と認可（その人がどの組織のどんなroleか）を明確に分離している
+  - 認証：Auth.jsのGoogle Providerがサインインそのものを担当。セッションはJWT戦略（DBアダプタなし）
+  - 認可：`users`テーブルを唯一の真実の情報源とし、Auth.jsの`signIn`/`jwt`コールバック（[`auth.ts`](./src/auth.ts)）でメールアドレスを突き合わせる
+  - 招待：管理者が管理ページからメールアドレス＋roleを指定すると、`users`テーブルにstatus:"invited"の行を作る（＝許可リストへの登録）。**メールは送信しない**——招待された本人は、伝えられたURLでログイン画面の「Googleでサインイン」を押すだけでよい。`signIn()`コールバックが「そのメールアドレスの`users`行が存在するか」だけを見て可否を決め、初回サインイン時に自動でactiveへ更新する
+  - 初期管理者はconfigファイルでシード（「最初の管理者を誰が招待するか」という鶏卵問題の解消）→同じGoogleアカウントでサインインするだけで有効化される
 - 権限は管理者／一般メンバーの2段階
 - フロア図アップロードAPI（`/api/floors/[floorId]/image`）・予約作成は、サーバー側で管理者／組織メンバーであることを再チェックする（UIを隠すだけに頼らない）
 
-**ハマった点**：Supabaseの管理API（`inviteUserByEmail`等）で発行したリンクは、認証情報をURLの**ハッシュ部分**（`#access_token=...`）で返す。ハッシュはブラウザからサーバーに送信されないため、`signInWithOtp`のようなクライアント発行のPKCEコード（`?code=...`）を前提にサーバー側Route Handlerで処理していた最初の実装では検知できなかった。`/auth/callback`をクライアントコンポーネントに書き換え、ハッシュとコードの両方に対応させて解決した（[`AuthCallbackHandler.tsx`](./src/components/AuthCallbackHandler.tsx)）。
+**設計判断の経緯**：当初はSupabase Auth（メール+パスワード→Google OAuthへの移行）で実装していたが、(1) 招待メールのリンクがSupabaseダッシュボードの Site URL/Redirect URLs 設定に強く依存し、設定漏れで容易にリダイレクトが壊れる、(2) Google OAuth移行時にPKCEの`code_verifier`が見つからないエラーが解消できない、という2つの問題に繰り返し当たった。原因を深追いするより、Next.js App Router向けに実績が豊富なAuth.jsに認証だけを切り出し、認可（役割・組織）は元々分離してあった自前の`users`テーブル設計をそのまま活かす方針に切り替えた。この切り替えにより、招待メールの送信自体が不要になり（Googleでサインインするだけで済むため）、ダッシュボード設定への依存も消えた。
 
 ### フロア図（背景画像）
 会議室の矩形配置だけでは「入り口からどれくらい離れているか」等の距離感が掴みにくいため、実際のフロア図画像を背景に表示できるようにした。画像はSupabase Storageに保存し、`floors`テーブルに元画像のピクセルサイズ（`floorPlanImageWidth/Height`）を保持することで、SVGの`viewBox`を画像の座標系に一致させ、会議室の矩形がずれずに重なるようにしている。
@@ -53,6 +53,7 @@ lib/repositories/         … データアクセス（インターフェース�
 ## 4. 技術スタック
 
 - フロントエンド／バックエンド：Next.js（App Router）+ TypeScript
+- 認証：Auth.js（Google OAuth）
 - DB：Supabase（PostgreSQL）、ORM：Drizzle
 - ストレージ：Supabase Storage（フロア図画像）
 - テスト：Vitest
@@ -62,17 +63,18 @@ lib/repositories/         … データアクセス（インターフェース�
 
 ```bash
 npm install
-cp .env.example .env   # SupabaseのDATABASE_URL等を設定
+cp .env.example .env   # SupabaseのDATABASE_URL・Auth.js/Google関連の値を設定（.env.exampleにコメントあり）
 npm run db:push        # テーブルを作成
 npm run storage:setup  # フロア図保存用のStorageバケットを作成
 npm run db:seed        # ダミーデータを投入
+npm run auth:seed-admins # 最初の管理者をconfig/seed-admins.jsonからシード
 npm run dev
 ```
 
-Supabaseダッシュボードの **Authentication → URL Configuration → Redirect URLs** に、以下を追加しておく必要がある（未設定だとメール内リンクからのサインインが失敗する）。
+Google Cloud Console（APIとサービス → 認証情報）のOAuthクライアントIDで、**承認済みのリダイレクトURI**に以下を登録しておく必要がある。
 ```
-http://localhost:3000/**
-https://<本番ドメイン>/**
+http://localhost:3000/api/auth/callback/google
+https://<本番ドメイン>/api/auth/callback/google
 ```
 
 テスト実行：

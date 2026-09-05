@@ -63,11 +63,11 @@ export const rooms = pgTable("rooms", {
 });
 
 /**
- * ユーザー。Supabase Authのユーザー(authUserId)と組織を紐づける。
+ * ユーザー。Auth.js（Google OAuth）のアカウント(authUserId)と組織を紐づける。
  * role: 'admin' | 'member'、status: 'invited' | 'active'
  *
  * authUserIdは、管理者のconfigシード時点や招待発行時点ではnull（まだ一度もサインインしていない）。
- * 本人が初めてSupabase Authでサインインしたときに、emailが一致するこの行にauthUserIdを紐づける。
+ * 本人が初めてGoogleでサインインしたときに、emailが一致するこの行にauthUserId（Googleのsub）を紐づける。
  */
 export const users = pgTable(
   "users",
@@ -76,7 +76,8 @@ export const users = pgTable(
     organizationId: uuid("organization_id")
       .references(() => organizations.id, { onDelete: "cascade" })
       .notNull(),
-    authUserId: uuid("auth_user_id"), // Supabase Auth側のユーザーID（別スキーマのため外部キー制約は張らない）
+    // Auth.js側のアカウントID（Googleの場合はprofile.sub＝数値文字列で、UUID形式ではないためtext）
+    authUserId: text("auth_user_id"),
     email: text("email").notNull(),
     name: text("name"),
     role: text("role", { enum: ["admin", "member"] }).notNull().default("member"),
