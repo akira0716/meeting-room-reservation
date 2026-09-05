@@ -42,11 +42,16 @@ export type FloorMapData = {
 
 /**
  * フロアマップ表示に必要なデータをまとめて取得する。
- * デモは組織を1つだけ想定しているため、先頭の組織・建物を採用する。
+ * 引数のorganizationId（＝ログイン中メンバーの所属組織）でスコープする。
+ * 1組織につき建物は1つだけ想定しているため、先頭の建物を採用する。
  * 「本日分」の予約のみ取得し、各部屋について「今まさに使用中か」も合わせて計算する。
  */
-export async function getFloorMapData(): Promise<FloorMapData | null> {
-  const [org] = await db.select().from(organizations).limit(1);
+export async function getFloorMapData(organizationId: string): Promise<FloorMapData | null> {
+  const [org] = await db
+    .select()
+    .from(organizations)
+    .where(eq(organizations.id, organizationId))
+    .limit(1);
   if (!org) return null;
 
   const [building] = await db

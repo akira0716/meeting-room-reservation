@@ -1,9 +1,11 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import { eq } from "drizzle-orm";
+import { cookies } from "next/headers";
 import { db } from "@/lib/db/client";
-import { users } from "@/lib/db/schema";
+import { organizations, users } from "@/lib/db/schema";
 import type { OrgMember } from "@/lib/auth/types";
+import { OWNER_SIGNUP_ORG_NAME_COOKIE } from "@/lib/auth/ownerSignup";
 
 /**
  * 認証はAuth.js（Google OAuthのみ）に任せ、「組織のメンバーかどうか・role」の
@@ -13,6 +15,11 @@ import type { OrgMember } from "@/lib/auth/types";
  * 作っておく（＝許可リスト）。本人はメールのリンクを踏む必要はなく、
  * ログイン画面の「Googleでサインイン」を押すだけでよい。signIn()コールバックで
  * 「そのメールアドレスのusers行が存在するか」だけを見て可否を決める。
+ *
+ * これとは別に、/signupから来た「新しい組織のオーナーになる」サインインも
+ * 受け付ける（[`ownerSignup.ts`](./lib/auth/ownerSignup.ts)のCookie参照）。
+ * こちらはusers行がまだ存在しない前提で、jwt()コールバックの中で
+ * organizations行とusers行（role: admin）を新規作成する。
  *
  * セッションはJWT戦略（DBアダプタなし）。Auth.js自身のuser/accountテーブルは
  * 使わず、jwt()コールバックの中でusersテーブルを都度引いてrole等をtokenに載せる。
@@ -31,21 +38,64 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         .from(users)
         .where(eq(users.email, user.email))
         .limit(1);
-      // 招待されていない（usersテーブルに行がない）メールアドレスはサインインを拒否する
+
+      const cookieStore = await cookies();
+      const pendingOrgName = cookieStore.get(OWNER_SIGNUP_ORG_NAME_COOKIE)?.value;
+
+      if (pendingOrgName) {
+        // /signup（新しい組織のオーナー登録）から来たサインイン。
+        // 1つのメールアドレスは1つの組織にのみ所属できる設計のため、
+        // 既にどこかの組織に所属（招待中も含む）済みなら新規組織作成は拒否する。
+        if (member) {
+          cookieStore.delete(OWNER_SIGNUP_ORG_NAME_COOKIE);
+          return "/signup?error=AlreadyMember";
+        }
+        // Cookieはここでは消さない。実際の組織作成とCookie削除はjwt()側で行う
+        return true;
+      }
+
+      // 通常の（既存組織への）サインイン：招待済みメンバーのみ許可する
       return Boolean(member);
     },
     async jwt({ token, account, profile }) {
       const email = profile?.email ?? token.email;
       if (!email) return token;
 
-      const [member] = await db.select().from(users).where(eq(users.email, email)).limit(1);
-      if (!member) {
-        delete token.member;
-        return token;
-      }
+      let [member] = await db.select().from(users).where(eq(users.email, email)).limit(1);
 
-      // 初回サインイン時、Googleのsub（安定したアカウントID）を紐付けてactiveにする
-      if (account?.providerAccountId && (!member.authUserId || member.status === "invited")) {
+      if (!member) {
+        // usersテーブルに行が無い＝招待された既存メンバーではない。
+        // signIn()を通過できたのは/signup発行のCookieがある場合のみのはずなので、
+        // ここで新しい組織とオーナー（管理者）ユーザーを作成する。
+        const cookieStore = await cookies();
+        const pendingOrgName = cookieStore.get(OWNER_SIGNUP_ORG_NAME_COOKIE)?.value;
+        if (!pendingOrgName || !account?.providerAccountId) {
+          delete token.member;
+          return token;
+        }
+
+        const [org] = await db
+          .insert(organizations)
+          .values({ name: pendingOrgName })
+          .returning();
+        [member] = await db
+          .insert(users)
+          .values({
+            organizationId: org.id,
+            authUserId: account.providerAccountId,
+            email,
+            name: typeof profile?.name === "string" ? profile.name : null,
+            role: "admin",
+            status: "active",
+          })
+          .returning();
+
+        cookieStore.delete(OWNER_SIGNUP_ORG_NAME_COOKIE);
+      } else if (
+        account?.providerAccountId &&
+        (!member.authUserId || member.status === "invited")
+      ) {
+        // 初回サインイン時、Googleのsub（安定したアカウントID）を紐付けてactiveにする
         await db
           .update(users)
           .set({ authUserId: account.providerAccountId, status: "active" })

@@ -32,6 +32,12 @@ export default async function LoginPage({
           Googleでサインイン
         </button>
       </form>
+      <a
+        href="/signup"
+        className="mt-4 block text-xs text-neutral-500 underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200"
+      >
+        組織のオーナーとして新しく始める方はこちら
+      </a>
     </main>
   );
 }
