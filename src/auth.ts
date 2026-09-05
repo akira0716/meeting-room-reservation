@@ -91,17 +91,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           .returning();
 
         cookieStore.delete(OWNER_SIGNUP_ORG_NAME_COOKIE);
-      } else if (
-        account?.providerAccountId &&
-        (!member.authUserId || member.status === "invited")
-      ) {
-        // 初回サインイン時、Googleのsub（安定したアカウントID）を紐付けてactiveにする
-        await db
-          .update(users)
-          .set({ authUserId: account.providerAccountId, status: "active" })
-          .where(eq(users.id, member.id));
-        member.authUserId = account.providerAccountId;
-        member.status = "active";
+      } else {
+        // 既存メンバー（招待済み・参加済み問わず）のサインイン。
+        // バグ修正：招待経由のメンバーはusers行作成時に名前を入力する手段が無く
+        // （createInvitationActionはメールアドレスのみで作成する）、これまでnameが
+        // 常にnullのままになっていた（アバターメニューに名前が表示されない不具合）。
+        // Googleプロフィールのnameが取れていて、かつDB側と異なる場合は都度同期する。
+        const patch: { authUserId?: string; status?: "active"; name?: string } = {};
+        if (account?.providerAccountId && (!member.authUserId || member.status === "invited")) {
+          // 初回サインイン時、Googleのsub（安定したアカウントID）を紐付けてactiveにする
+          patch.authUserId = account.providerAccountId;
+          patch.status = "active";
+        }
+        if (typeof profile?.name === "string" && profile.name && profile.name !== member.name) {
+          patch.name = profile.name;
+        }
+        if (Object.keys(patch).length > 0) {
+          await db.update(users).set(patch).where(eq(users.id, member.id));
+          member = { ...member, ...patch };
+        }
       }
 
       const orgMember: OrgMember = {
