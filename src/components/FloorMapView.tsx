@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { saveFloorLayoutAction, type NewRoomInput } from "@/app/actions";
 import type { FloorMapData, RoomWithReservations } from "@/lib/queries/getFloorMapData";
+import { isOverlapping } from "@/lib/services/reservationOverlap";
 import { FloorPlanUploadForm } from "./FloorPlanUploadForm";
 import { RoomDetailPanel } from "./RoomDetailPanel";
 
@@ -50,6 +51,11 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
   const [resizingId, setResizingId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [popoverPos, setPopoverPos] = useState<{ left: number; top: number } | null>(null);
+  // 会議室検索（参加人数・開始/終了時刻）。フロアは検索条件に含めず、今表示中の
+  // フロアの中だけで絞り込む（フロアタブと役割が重複しないようにするため）。
+  const [searchCapacity, setSearchCapacity] = useState("");
+  const [searchStart, setSearchStart] = useState("");
+  const [searchEnd, setSearchEnd] = useState("");
   const svgRef = useRef<SVGSVGElement>(null);
   // mapOuterRef: ポップオーバーの位置決めの基準（overflowをclipしない、常に全体を包む要素）
   // mapContainerRef: 実際にスクロール／クリップする箱（フロア図画像の表示・スクロール状態はここが持つ）
@@ -62,6 +68,35 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
   const selectedFloor = data.floors.find((f) => f.id === selectedFloorId) ?? data.floors[0];
   const hasPendingChanges =
     Object.keys(pendingLayout).length > 0 || draftRooms.length > 0 || pendingDeleteIds.size > 0;
+
+  // 会議室検索：編集モード中は対象外（編集モードには別のツールバーがある）。
+  // 参加人数・開始/終了時刻はそれぞれ独立に適用でき、指定していない条件は無視する。
+  // 「本日の予約」しか読み込んでいないため、検索も本日の時間帯のみを対象にする
+  // （日をまたぐ空き状況の検索は将来の課題）。
+  const searchRange =
+    searchStart && searchEnd
+      ? { start: new Date(searchStart), end: new Date(searchEnd) }
+      : null;
+  const hasValidSearchRange =
+    searchRange !== null &&
+    !Number.isNaN(searchRange.start.getTime()) &&
+    !Number.isNaN(searchRange.end.getTime()) &&
+    searchRange.start < searchRange.end;
+  const isSearchActive = !isEditMode && (searchCapacity !== "" || hasValidSearchRange);
+
+  function roomMatchesSearch(room: RoomWithReservations): boolean {
+    if (searchCapacity !== "") {
+      const requiredCapacity = Number(searchCapacity);
+      if (room.capacity == null || room.capacity < requiredCapacity) return false;
+    }
+    if (hasValidSearchRange && searchRange) {
+      const hasConflict = room.reservations.some((r) =>
+        isOverlapping(searchRange, { start: r.startAt, end: r.endAt }),
+      );
+      if (hasConflict) return false;
+    }
+    return true;
+  }
 
   // SVG描画用に、既存の会議室と追加中の会議室を1つのリストにまとめる。
   // ドラッグ移動・リサイズ中の座標（pendingLayout）をここで反映するため、
@@ -88,6 +123,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
         isOccupiedNow: room.isOccupiedNow,
         isDraft: false,
         markedForDelete: pendingDeleteIds.has(room.id),
+        matchesSearch: !isSearchActive || roomMatchesSearch(room),
         baseLayout,
       };
     }) ?? []),
@@ -109,6 +145,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
         isOccupiedNow: false,
         isDraft: true,
         markedForDelete: false,
+        matchesSearch: true,
         baseLayout,
       };
     }),
@@ -470,6 +507,60 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
         </div>
       )}
 
+      {!isEditMode && (
+        <div className="mt-2 flex flex-wrap items-end gap-3 text-xs">
+          <div>
+            <label className="block text-neutral-500">参加人数</label>
+            <input
+              type="number"
+              min={1}
+              value={searchCapacity}
+              onChange={(e) => setSearchCapacity(e.target.value)}
+              placeholder="指定なし"
+              className="mt-0.5 w-20 rounded border border-black/10 bg-transparent px-2 py-1 dark:border-white/10"
+            />
+          </div>
+          <div>
+            <label className="block text-neutral-500">開始</label>
+            <input
+              type="datetime-local"
+              value={searchStart}
+              onChange={(e) => setSearchStart(e.target.value)}
+              className="mt-0.5 rounded border border-black/10 bg-transparent px-2 py-1 dark:border-white/10"
+            />
+          </div>
+          <div>
+            <label className="block text-neutral-500">終了</label>
+            <input
+              type="datetime-local"
+              value={searchEnd}
+              onChange={(e) => setSearchEnd(e.target.value)}
+              className="mt-0.5 rounded border border-black/10 bg-transparent px-2 py-1 dark:border-white/10"
+            />
+          </div>
+          {isSearchActive && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchCapacity("");
+                  setSearchStart("");
+                  setSearchEnd("");
+                }}
+                className="text-neutral-500 underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200"
+              >
+                検索条件をクリア
+              </button>
+              {!displayRooms.some((r) => !r.isDraft && r.matchesSearch) && (
+                <span className="text-rose-600 dark:text-rose-400">
+                  条件に合う会議室がありません
+                </span>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {isAdmin && selectedFloor && <FloorPlanUploadForm floorId={selectedFloor.id} />}
 
       <div className="mt-4">
@@ -520,7 +611,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
               <g
                 key={room.id}
                 onClick={() => {
-                  if (!isEditMode) setSelectedRoomId(room.id);
+                  if (!isEditMode && room.matchesSearch) setSelectedRoomId(room.id);
                 }}
                 onPointerDown={(e) => {
                   if (room.markedForDelete) return;
@@ -535,7 +626,9 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                       : isDragging
                         ? "cursor-grabbing"
                         : "cursor-grab"
-                    : "cursor-pointer"
+                    : room.matchesSearch
+                      ? "cursor-pointer"
+                      : "cursor-not-allowed"
                 }
               >
                 <rect
@@ -545,9 +638,15 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                   height={room.height}
                   rx={6}
                   fillOpacity={
-                    room.markedForDelete ? 0.2 : selectedFloor?.floorPlanImageUrl ? 0.55 : 1
+                    room.markedForDelete || !room.matchesSearch
+                      ? 0.25
+                      : selectedFloor?.floorPlanImageUrl
+                        ? 0.55
+                        : 1
                   }
-                  strokeDasharray={room.markedForDelete ? "4 3" : undefined}
+                  strokeDasharray={
+                    room.markedForDelete || !room.matchesSearch ? "4 3" : undefined
+                  }
                   className={
                     room.markedForDelete
                       ? "stroke-2 stroke-rose-500"
@@ -555,11 +654,21 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                         ? "stroke-2 stroke-emerald-500"
                         : pendingLayout[room.id]
                           ? "stroke-2 stroke-amber-500"
-                          : room.id === selectedRoomId
-                            ? "stroke-2 stroke-neutral-900 dark:stroke-white"
-                            : "stroke-1 stroke-black/20 dark:stroke-white/20"
+                          : !room.matchesSearch
+                            ? "stroke-1 stroke-black/20 dark:stroke-white/20"
+                            : room.id === selectedRoomId
+                              ? "stroke-2 stroke-neutral-900 dark:stroke-white"
+                              : isSearchActive
+                                ? "stroke-2 stroke-sky-500"
+                                : "stroke-1 stroke-black/20 dark:stroke-white/20"
                   }
-                  fill={room.isOccupiedNow ? "var(--room-occupied)" : "var(--room-available)"}
+                  fill={
+                    !room.matchesSearch
+                      ? "var(--room-muted)"
+                      : room.isOccupiedNow
+                        ? "var(--room-occupied)"
+                        : "var(--room-available)"
+                  }
                 />
                 <text
                   x={room.x + room.width / 2}
@@ -579,9 +688,11 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                     ? "削除予定"
                     : room.isDraft
                       ? "追加予定"
-                      : room.isOccupiedNow
-                        ? "使用中"
-                        : "空き"}
+                      : !room.matchesSearch
+                        ? "条件外"
+                        : room.isOccupiedNow
+                          ? "使用中"
+                          : "空き"}
                 </text>
                 {isEditMode && !room.markedForDelete && (
                   <text
@@ -646,6 +757,9 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                 key={selectedRoom.id}
                 room={selectedRoom}
                 onClose={() => setSelectedRoomId(null)}
+                initialBookingRange={
+                  hasValidSearchRange ? { start: searchStart, end: searchEnd } : undefined
+                }
               />
             </div>
           )}

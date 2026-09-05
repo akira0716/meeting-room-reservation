@@ -56,13 +56,24 @@ function ReservationRow({ reservation }: { reservation: RoomReservation }) {
   );
 }
 
-function BookingForm({ roomId, onClose }: { roomId: string; onClose: () => void }) {
+function BookingForm({
+  roomId,
+  onClose,
+  initialRange,
+}: {
+  roomId: string;
+  onClose: () => void;
+  /** 検索条件で指定した開始・終了時刻（datetime-local文字列）。指定時はこれを初期値にする */
+  initialRange?: { start: string; end: string };
+}) {
   const [state, formAction] = useActionState(createReservationAction, initialState);
 
   const now = new Date();
   const defaultStart = new Date(now);
   defaultStart.setMinutes(Math.ceil(defaultStart.getMinutes() / 30) * 30, 0, 0);
   const defaultEnd = new Date(defaultStart.getTime() + 30 * 60_000);
+  const defaultStartValue = initialRange?.start ?? toDatetimeLocalValue(defaultStart);
+  const defaultEndValue = initialRange?.end ?? toDatetimeLocalValue(defaultEnd);
 
   // 予約成功後は、一覧側はServer Actionのrevalidatによって最新化される。
   // ここではフォームの代わりに完了メッセージを出し、ユーザーの操作（閉じる）でパネルを閉じる。
@@ -107,7 +118,7 @@ function BookingForm({ roomId, onClose }: { roomId: string; onClose: () => void 
             type="datetime-local"
             name="startAt"
             required
-            defaultValue={toDatetimeLocalValue(defaultStart)}
+            defaultValue={defaultStartValue}
             className="mt-0.5 w-full rounded border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/10"
           />
         </div>
@@ -117,7 +128,7 @@ function BookingForm({ roomId, onClose }: { roomId: string; onClose: () => void 
             type="datetime-local"
             name="endAt"
             required
-            defaultValue={toDatetimeLocalValue(defaultEnd)}
+            defaultValue={defaultEndValue}
             className="mt-0.5 w-full rounded border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/10"
           />
         </div>
@@ -149,10 +160,13 @@ function BookingForm({ roomId, onClose }: { roomId: string; onClose: () => void 
 export function RoomDetailPanel({
   room,
   onClose,
+  initialBookingRange,
 }: {
   room: RoomWithReservations;
   /** フロアマップ上のポップオーバーとして表示している場合の閉じるボタン。指定時のみ表示する */
   onClose?: () => void;
+  /** 会議室検索で開始・終了時刻を指定していた場合、予約フォームの初期値として引き継ぐ */
+  initialBookingRange?: { start: string; end: string };
 }) {
   const [showForm, setShowForm] = useState(false);
 
@@ -207,7 +221,11 @@ export function RoomDetailPanel({
           この部屋を予約する
         </button>
       ) : (
-        <BookingForm roomId={room.id} onClose={() => setShowForm(false)} />
+        <BookingForm
+          roomId={room.id}
+          onClose={() => setShowForm(false)}
+          initialRange={initialBookingRange}
+        />
       )}
     </div>
   );
