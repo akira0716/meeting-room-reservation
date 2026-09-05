@@ -51,6 +51,9 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
   const [isSaving, setIsSaving] = useState(false);
   const [popoverPos, setPopoverPos] = useState<{ left: number; top: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  // mapOuterRef: ポップオーバーの位置決めの基準（overflowをclipしない、常に全体を包む要素）
+  // mapContainerRef: 実際にスクロール／クリップする箱（フロア図画像の表示・スクロール状態はここが持つ）
+  const mapOuterRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
   const dragSizeRef = useRef({ width: 0, height: 0 });
@@ -138,56 +141,69 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
   );
 
   // 予約状況ポップオーバーを、クリックした会議室の右隣（収まらなければ左隣）に
-  // フロアマップ上へ重ねて表示する。位置はSVGのgetScreenCTM()で会議室の座標を
-  // 画面座標に変換し、マップのコンテナ基準（スクロール量を加味した「コンテンツ
-  // 座標」）に変換して求める。これによりネイティブ表示（等倍）・縮小表示
-  // （aspect-ratio固定＋fit）のどちらでも、スクロールしても正しい位置に付く。
+  // フロアマップ上へ重ねて表示する。フロアマップの枠からはみ出しても見切れない
+  // よう、ポップオーバーはマップの外（mapOuterRef直下、スクロールしない要素）に
+  // 置いている。そのため位置は「現在画面のどこに見えているか」（mapOuterRef基準の
+  // 現在のビューポート相対位置）で計算する必要があり、スクロールするたびに
+  // 再計算する（scrollイベントを監視）。
   useLayoutEffect(() => {
     // 対象が無い場合は何もしない（描画側はselectedRoom/popoverPosの有無だけで
     // ポップオーバーの表示可否を判定するため、ここで明示的にクリアする必要はない）
     if (isEditMode || !selectedRoomId) return;
     const svg = svgRef.current;
-    const container = mapContainerRef.current;
+    const outer = mapOuterRef.current;
     const room = displayRooms.find((r) => r.id === selectedRoomId);
-    if (!svg || !container || !room) return;
+    if (!svg || !outer || !room) return;
 
     const POPOVER_WIDTH = 300;
     const GAP = 8;
 
     function computePosition() {
       const svgEl = svgRef.current;
+      const outerEl = mapOuterRef.current;
       const containerEl = mapContainerRef.current;
-      if (!svgEl || !containerEl || !room) return;
+      if (!svgEl || !outerEl || !room) return;
       const screenCtm = svgEl.getScreenCTM();
       if (!screenCtm) return;
       const ctm: DOMMatrix = screenCtm;
 
-      const containerRect = containerEl.getBoundingClientRect();
+      const outerRect = outerEl.getBoundingClientRect();
 
-      function toContentPoint(svgX: number, svgY: number) {
+      function toOuterRelativePoint(svgX: number, svgY: number) {
         const point = svgEl!.createSVGPoint();
         point.x = svgX;
         point.y = svgY;
         const screenPoint = point.matrixTransform(ctm);
         return {
-          x: screenPoint.x - containerRect.left + containerEl!.scrollLeft,
-          y: screenPoint.y - containerRect.top + containerEl!.scrollTop,
+          x: screenPoint.x - outerRect.left,
+          y: screenPoint.y - outerRect.top,
         };
       }
 
-      const topRight = toContentPoint(room.x + room.width, room.y);
-      const topLeft = toContentPoint(room.x, room.y);
+      const topRight = toOuterRelativePoint(room.x + room.width, room.y);
+      const topLeft = toOuterRelativePoint(room.x, room.y);
 
-      const fitsOnRight = topRight.x + GAP + POPOVER_WIDTH <= containerEl.scrollWidth;
-      const left = fitsOnRight ? topRight.x + GAP : Math.max(0, topLeft.x - GAP - POPOVER_WIDTH);
-      const top = Math.max(0, topRight.y);
+      // フロアマップの枠からはみ出す表示を許容するため、0や枠幅でクランプしない
+      // （右に入り切らない時だけ左隣に切り替える、という判定にのみ使う）
+      const visibleWidth = containerEl?.clientWidth ?? outerRect.width;
+      const fitsOnRight = topRight.x + GAP + POPOVER_WIDTH <= visibleWidth;
+      const left = fitsOnRight ? topRight.x + GAP : topLeft.x - GAP - POPOVER_WIDTH;
+      const top = topRight.y;
 
       setPopoverPos({ left, top });
     }
 
     computePosition();
+    const containerEl = mapContainerRef.current;
     window.addEventListener("resize", computePosition);
-    return () => window.removeEventListener("resize", computePosition);
+    // フロア図画像のフロアはマップ内をスクロールできるため、スクロールするたびに
+    // 会議室の画面上の位置が変わる。ポップオーバーはスクロールしない
+    // mapOuterRef直下にあるため、scrollイベントで都度追従させる必要がある
+    containerEl?.addEventListener("scroll", computePosition);
+    return () => {
+      window.removeEventListener("resize", computePosition);
+      containerEl?.removeEventListener("scroll", computePosition);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRoomId, isEditMode, viewBox]);
 
@@ -461,31 +477,23 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
           フロアマップは画面横いっぱいに表示する。予約状況（RoomDetailPanel）は
           専用のカラムを設けず、クリックした会議室の右隣（収まらなければ左隣）に
           ポップオーバーとしてマップ上へ重ねて表示する（下のuseLayoutEffect参照）。
+          ポップオーバーはフロアマップの外（mapOuterRef直下）に置き、マップ側の
+          overflow-hidden/overflow-autoでは見切れないようにしている。
 
           フロア図画像があるフロアは、画像の実ピクセルサイズをそのまま
-          表示エリア＝1フロアとして扱う（拡大縮小せず、はみ出す分は
-          overflow-autoでスクロールする）。画像が無いフロアは、表示エリア
-          自体を1フロア分として使い、部屋の配置範囲に合わせてaspect-ratio
-          固定のコンテナ内で拡大縮小して表示する（スクロール不要）。
+          表示エリア＝1フロアとして扱う（拡大縮小せず、はみ出す分はスクロール
+          する。見た目のスクロールバーはno-scrollbarで隠す）。画像が無い
+          フロアは、表示エリア自体を1フロア分として使い、部屋の配置範囲に
+          合わせてaspect-ratio固定のコンテナ内で拡大縮小して表示する
+          （スクロール不要）。
         */}
-        <div
-          ref={mapContainerRef}
-          className={
-            hasFloorPlanImage
-              ? "relative max-h-[480px] w-full min-w-0 overflow-auto rounded-lg border border-black/10 dark:border-white/10"
-              : "relative aspect-[4/3] w-full min-w-0"
-          }
-        >
-          {/*
-            画像が無いフロアだけ、SVGをこの内側のラッパーで切り抜く。
-            ポップオーバー（この下）はこのラッパーの外＝outerのrelativeコンテナ直下に
-            置くことで、overflow-hiddenで見切れないようにしている。
-          */}
+        <div ref={mapOuterRef} className="relative w-full min-w-0">
           <div
+            ref={mapContainerRef}
             className={
               hasFloorPlanImage
-                ? undefined
-                : "absolute inset-0 overflow-hidden rounded-lg border border-black/10 bg-neutral-50 dark:border-white/10 dark:bg-neutral-950"
+                ? "no-scrollbar max-h-[480px] w-full overflow-auto rounded-lg border border-black/10 dark:border-white/10"
+                : "aspect-[4/3] w-full overflow-hidden rounded-lg border border-black/10 bg-neutral-50 dark:border-white/10 dark:bg-neutral-950"
             }
           >
             <svg
@@ -494,7 +502,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
               width={hasFloorPlanImage ? (floorPlanWidth ?? undefined) : undefined}
               height={hasFloorPlanImage ? (floorPlanHeight ?? undefined) : undefined}
               preserveAspectRatio={hasFloorPlanImage ? undefined : "xMidYMid meet"}
-              className={hasFloorPlanImage ? "block" : "absolute inset-0 h-full w-full"}
+              className={hasFloorPlanImage ? "block" : "h-full w-full"}
             >
             {hasFloorPlanImage && selectedFloor?.floorPlanImageUrl && (
               <image
