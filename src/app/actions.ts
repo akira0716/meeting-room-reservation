@@ -13,6 +13,9 @@ import {
   ReservationConflictError,
 } from "@/lib/services/reservationService";
 
+/** 会議室の最小サイズ（px相当）。誤操作で潰れたサイズにならないようサーバー側でもクランプする */
+const MIN_ROOM_SIZE = 20;
+
 export type CreateReservationState =
   | { status: "idle" }
   | { status: "error"; message: string }
@@ -159,7 +162,13 @@ export async function deleteReservationAction(
   return { status: "success" };
 }
 
-export type RoomPositionUpdate = { roomId: string; positionX: number; positionY: number };
+export type RoomPositionUpdate = {
+  roomId: string;
+  positionX: number;
+  positionY: number;
+  width: number;
+  height: number;
+};
 
 export type NewRoomInput = {
   name: string;
@@ -221,10 +230,15 @@ export async function saveFloorLayoutAction(
   }
 
   await db.transaction(async (tx) => {
-    for (const { roomId, positionX, positionY } of positionUpdates) {
+    for (const { roomId, positionX, positionY, width, height } of positionUpdates) {
       await tx
         .update(rooms)
-        .set({ positionX: Math.round(positionX), positionY: Math.round(positionY) })
+        .set({
+          positionX: Math.round(positionX),
+          positionY: Math.round(positionY),
+          width: Math.max(MIN_ROOM_SIZE, Math.round(width)),
+          height: Math.max(MIN_ROOM_SIZE, Math.round(height)),
+        })
         .where(eq(rooms.id, roomId));
     }
     for (const room of newRooms) {
@@ -233,8 +247,8 @@ export async function saveFloorLayoutAction(
         name: room.name,
         positionX: Math.round(room.positionX),
         positionY: Math.round(room.positionY),
-        width: Math.max(20, Math.round(room.width)),
-        height: Math.max(20, Math.round(room.height)),
+        width: Math.max(MIN_ROOM_SIZE, Math.round(room.width)),
+        height: Math.max(MIN_ROOM_SIZE, Math.round(room.height)),
         capacity: room.capacity,
       });
     }

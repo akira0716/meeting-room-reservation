@@ -11,6 +11,10 @@ const DEFAULT_ROOM_WIDTH = 120;
 const DEFAULT_ROOM_HEIGHT = 80;
 
 type Position = { x: number; y: number };
+type RoomLayout = { x: number; y: number; width: number; height: number };
+
+const MIN_ROOM_WIDTH = 40;
+const MIN_ROOM_HEIGHT = 30;
 
 /** まだDBに保存されていない、追加中の会議室。tempIdはクライアント側だけの一時識別子 */
 type DraftRoom = {
@@ -37,20 +41,22 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
   const [selectedFloorId, setSelectedFloorId] = useState(data.floors[0]?.id);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
-  // ドラッグで動かしたが、まだ「保存」を押していない位置。id(roomId or draftのtempId) -> 座標
-  const [pendingPositions, setPendingPositions] = useState<Record<string, Position>>({});
+  // ドラッグで動かした／リサイズした位置・サイズだが、まだ「保存」を押していないもの。
+  // id(roomId or draftのtempId) -> レイアウト
+  const [pendingLayout, setPendingLayout] = useState<Record<string, RoomLayout>>({});
   const [draftRooms, setDraftRooms] = useState<DraftRoom[]>([]);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [resizingId, setResizingId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
+  const dragSizeRef = useRef({ width: 0, height: 0 });
+  const resizeOriginRef = useRef({ x: 0, y: 0 });
 
   const selectedFloor = data.floors.find((f) => f.id === selectedFloorId) ?? data.floors[0];
   const hasPendingChanges =
-    Object.keys(pendingPositions).length > 0 ||
-    draftRooms.length > 0 ||
-    pendingDeleteIds.size > 0;
+    Object.keys(pendingLayout).length > 0 || draftRooms.length > 0 || pendingDeleteIds.size > 0;
 
   const viewBox = useMemo(() => {
     // フロア図（背景画像）があれば、座標系を画像のピクセルサイズに合わせる
@@ -70,7 +76,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
   );
 
   function resetPendingEdits() {
-    setPendingPositions({});
+    setPendingLayout({});
     setDraftRooms([]);
     setPendingDeleteIds(new Set());
   }
@@ -94,33 +100,70 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
     return window.confirm("保存されていない変更があります。破棄しますか？");
   }
 
-  function handlePointerDown(e: React.PointerEvent<SVGGElement>, id: string, base: Position) {
+  function handlePointerDown(e: React.PointerEvent<SVGGElement>, id: string, base: RoomLayout) {
     if (!isEditMode) return;
-    // 削除／元に戻すボタン上でのpointerdownはドラッグ扱いにしない。
+    // 削除／元に戻す／リサイズハンドル上でのpointerdownはドラッグ扱いにしない。
     // setPointerCaptureをここで取ってしまうと、後続のclickイベントの発火先が
     // このg要素側に変わってしまい、ボタン自体のonClickが発火しなくなるため。
     if ((e.target as Element).closest("[data-no-drag]")) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const svgPoint = toSvgPoint(e.clientX, e.clientY);
-    const current = pendingPositions[id] ?? base;
+    const current = pendingLayout[id] ?? base;
     dragOffsetRef.current = { x: svgPoint.x - current.x, y: svgPoint.y - current.y };
+    dragSizeRef.current = { width: current.width, height: current.height };
     setDraggingId(id);
   }
 
   function handlePointerMove(e: React.PointerEvent<SVGGElement>, id: string) {
     if (draggingId !== id) return;
     const svgPoint = toSvgPoint(e.clientX, e.clientY);
-    setPendingPositions((prev) => ({
+    const { width, height } = dragSizeRef.current;
+    setPendingLayout((prev) => ({
       ...prev,
       [id]: {
         x: Math.max(0, svgPoint.x - dragOffsetRef.current.x),
         y: Math.max(0, svgPoint.y - dragOffsetRef.current.y),
+        width,
+        height,
       },
     }));
   }
 
   function handlePointerUp() {
     setDraggingId(null);
+  }
+
+  // 会議室の右下角のハンドルをドラッグしてサイズ変更する。位置（左上）は固定し、
+  // ポインタ位置までwidth/heightを伸縮させる（最小サイズでクランプ）。
+  function handleResizePointerDown(
+    e: React.PointerEvent<SVGRectElement>,
+    id: string,
+    base: RoomLayout,
+  ) {
+    if (!isEditMode) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const current = pendingLayout[id] ?? base;
+    resizeOriginRef.current = { x: current.x, y: current.y };
+    setResizingId(id);
+  }
+
+  function handleResizePointerMove(e: React.PointerEvent<SVGRectElement>, id: string) {
+    if (resizingId !== id) return;
+    const svgPoint = toSvgPoint(e.clientX, e.clientY);
+    const origin = resizeOriginRef.current;
+    setPendingLayout((prev) => ({
+      ...prev,
+      [id]: {
+        x: origin.x,
+        y: origin.y,
+        width: Math.max(MIN_ROOM_WIDTH, svgPoint.x - origin.x),
+        height: Math.max(MIN_ROOM_HEIGHT, svgPoint.y - origin.y),
+      },
+    }));
+  }
+
+  function handleResizePointerUp() {
+    setResizingId(null);
   }
 
   function handleAddRoom() {
@@ -148,7 +191,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
 
   function removeDraftRoom(tempId: string) {
     setDraftRooms((prev) => prev.filter((room) => room.tempId !== tempId));
-    setPendingPositions((prev) => {
+    setPendingLayout((prev) => {
       const next = { ...prev };
       delete next[tempId];
       return next;
@@ -176,21 +219,28 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
     setIsSaving(true);
 
     const positionUpdates = selectedFloor.rooms
-      .filter((room) => pendingPositions[room.id] && !pendingDeleteIds.has(room.id))
+      .filter((room) => pendingLayout[room.id] && !pendingDeleteIds.has(room.id))
       .map((room) => ({
         roomId: room.id,
-        positionX: pendingPositions[room.id].x,
-        positionY: pendingPositions[room.id].y,
+        positionX: pendingLayout[room.id].x,
+        positionY: pendingLayout[room.id].y,
+        width: pendingLayout[room.id].width,
+        height: pendingLayout[room.id].height,
       }));
 
     const newRooms: NewRoomInput[] = draftRooms.map((draft) => {
-      const pos = pendingPositions[draft.tempId] ?? { x: draft.positionX, y: draft.positionY };
-      return {
-        name: draft.name,
-        positionX: pos.x,
-        positionY: pos.y,
+      const layout = pendingLayout[draft.tempId] ?? {
+        x: draft.positionX,
+        y: draft.positionY,
         width: draft.width,
         height: draft.height,
+      };
+      return {
+        name: draft.name,
+        positionX: layout.x,
+        positionY: layout.y,
+        width: layout.width,
+        height: layout.height,
         capacity: draft.capacity,
       };
     });
@@ -219,33 +269,45 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
   // SVG描画用に、既存の会議室と追加中の会議室を1つのリストにまとめる
   const displayRooms = [
     ...(selectedFloor?.rooms.map((room) => {
-      const pending = pendingPositions[room.id];
+      const pending = pendingLayout[room.id];
+      const baseLayout: RoomLayout = {
+        x: room.positionX,
+        y: room.positionY,
+        width: room.width,
+        height: room.height,
+      };
       return {
         id: room.id,
         name: room.name,
-        x: pending ? pending.x : room.positionX,
-        y: pending ? pending.y : room.positionY,
-        width: room.width,
-        height: room.height,
+        x: pending ? pending.x : baseLayout.x,
+        y: pending ? pending.y : baseLayout.y,
+        width: pending ? pending.width : baseLayout.width,
+        height: pending ? pending.height : baseLayout.height,
         isOccupiedNow: room.isOccupiedNow,
         isDraft: false,
         markedForDelete: pendingDeleteIds.has(room.id),
-        basePosition: { x: room.positionX, y: room.positionY },
+        baseLayout,
       };
     }) ?? []),
     ...draftRooms.map((draft) => {
-      const pending = pendingPositions[draft.tempId];
+      const pending = pendingLayout[draft.tempId];
+      const baseLayout: RoomLayout = {
+        x: draft.positionX,
+        y: draft.positionY,
+        width: draft.width,
+        height: draft.height,
+      };
       return {
         id: draft.tempId,
         name: draft.name || "（名称未設定）",
-        x: pending ? pending.x : draft.positionX,
-        y: pending ? pending.y : draft.positionY,
-        width: draft.width,
-        height: draft.height,
+        x: pending ? pending.x : baseLayout.x,
+        y: pending ? pending.y : baseLayout.y,
+        width: pending ? pending.width : baseLayout.width,
+        height: pending ? pending.height : baseLayout.height,
         isOccupiedNow: false,
         isDraft: true,
         markedForDelete: false,
-        basePosition: { x: draft.positionX, y: draft.positionY },
+        baseLayout,
       };
     }),
   ];
@@ -296,7 +358,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
       {isEditMode && (
         <div className="mt-2 flex items-center gap-3 text-xs">
           <p className="text-neutral-500">
-            会議室をドラッグして位置を調整できます。右側から会議室の追加・削除もできます。
+            会議室をドラッグして位置を調整、右下の■をドラッグしてサイズ変更できます。右側から追加・削除もできます。
           </p>
           {hasPendingChanges && (
             <div className="ml-auto flex items-center gap-2">
@@ -366,7 +428,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                 }}
                 onPointerDown={(e) => {
                   if (room.markedForDelete) return;
-                  handlePointerDown(e, room.id, room.basePosition);
+                  handlePointerDown(e, room.id, room.baseLayout);
                 }}
                 onPointerMove={(e) => handlePointerMove(e, room.id)}
                 onPointerUp={handlePointerUp}
@@ -395,7 +457,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                       ? "stroke-2 stroke-rose-500"
                       : room.isDraft
                         ? "stroke-2 stroke-emerald-500"
-                        : pendingPositions[room.id]
+                        : pendingLayout[room.id]
                           ? "stroke-2 stroke-amber-500"
                           : room.id === selectedRoomId
                             ? "stroke-2 stroke-neutral-900 dark:stroke-white"
@@ -443,6 +505,20 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
                   >
                     ×
                   </text>
+                )}
+                {isEditMode && !room.markedForDelete && (
+                  <rect
+                    data-no-drag
+                    x={room.x + room.width - 7}
+                    y={room.y + room.height - 7}
+                    width={14}
+                    height={14}
+                    rx={2}
+                    onPointerDown={(e) => handleResizePointerDown(e, room.id, room.baseLayout)}
+                    onPointerMove={(e) => handleResizePointerMove(e, room.id)}
+                    onPointerUp={handleResizePointerUp}
+                    className="cursor-nwse-resize fill-neutral-900 stroke-1 stroke-white dark:fill-white dark:stroke-neutral-900"
+                  />
                 )}
                 {isEditMode && room.markedForDelete && (
                   <text
@@ -525,7 +601,7 @@ export function FloorMapView({ data, isAdmin }: { data: FloorMapData; isAdmin: b
               )}
 
               <p className="text-neutral-400">
-                会議室の右上の「×」で削除予定にできます。サイズ変更は今後対応予定です。
+                会議室の右上の「×」で削除予定に、右下の■でサイズ変更できます。
               </p>
             </div>
           ) : selectedRoom ? (
