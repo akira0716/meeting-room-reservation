@@ -5,6 +5,7 @@
   --foreground: #171717;
   --room-available: #a7f3d0;
   --room-occupied: #fecdd3;
+  --room-muted: #d4d4d4;
 }
 
 @theme inline {
@@ -20,6 +21,7 @@
     --foreground: #ededed;
     --room-available: #065f46;
     --room-occupied: #9f1239;
+    --room-muted: #404040;
   }
 }
 
