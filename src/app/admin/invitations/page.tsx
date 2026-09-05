@@ -5,9 +5,7 @@ import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 import { AdminNav } from "@/components/AdminNav";
 import { CreateInvitationForm } from "@/components/CreateInvitationForm";
-
-const roleLabel: Record<string, string> = { admin: "管理者", member: "一般メンバー" };
-const statusLabel: Record<string, string> = { active: "参加済み", invited: "招待中" };
+import { MemberRow } from "@/components/MemberRow";
 
 export const dynamic = "force-dynamic";
 
@@ -48,14 +46,7 @@ export default async function AdminInvitationsPage() {
         <h2 className="text-sm font-medium text-neutral-500">メンバー一覧</h2>
         <ul className="mt-2 divide-y divide-black/5 dark:divide-white/5">
           {members.map((m) => (
-            <li key={m.id} className="flex items-center justify-between py-2 text-sm">
-              <span>{m.email}</span>
-              <span className="flex gap-2 text-xs text-neutral-500">
-                <span>{roleLabel[m.role]}</span>
-                <span>・</span>
-                <span>{statusLabel[m.status]}</span>
-              </span>
-            </li>
+            <MemberRow key={m.id} member={m} isSelf={m.id === member.id} />
           ))}
         </ul>
       </section>
