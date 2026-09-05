@@ -1,4 +1,5 @@
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { toDateKey } from "../dateKey";
 import { db } from "../db/client";
 import { buildings, floors, organizations, reservations, rooms } from "../db/schema";
 import { getFloorPlanImageUrl } from "../supabase/publicClient";
@@ -37,6 +38,11 @@ export type FloorWithRooms = {
 export type FloorMapData = {
   organizationName: string;
   buildingName: string;
+  /** 表示対象の日付（"YYYY-MM-DD"、ローカル日付） */
+  date: string;
+  /** dateが今日かどうか。falseの場合、isOccupiedNow（"今まさに使用中か"）は常にfalseになる
+   *  （過去・未来の日付には「今」という概念が無いため） */
+  isToday: boolean;
   floors: FloorWithRooms[];
 };
 
@@ -44,9 +50,13 @@ export type FloorMapData = {
  * フロアマップ表示に必要なデータをまとめて取得する。
  * 引数のorganizationId（＝ログイン中メンバーの所属組織）でスコープする。
  * 1組織につき建物は1つだけ想定しているため、先頭の建物を採用する。
- * 「本日分」の予約のみ取得し、各部屋について「今まさに使用中か」も合わせて計算する。
+ * targetDate（省略時は今日）の1日分の予約のみ取得し、今日を見ている場合に限り
+ * 各部屋について「今まさに使用中か」も合わせて計算する。
  */
-export async function getFloorMapData(organizationId: string): Promise<FloorMapData | null> {
+export async function getFloorMapData(
+  organizationId: string,
+  targetDate: Date = new Date(),
+): Promise<FloorMapData | null> {
   const [org] = await db
     .select()
     .from(organizations)
@@ -72,9 +82,9 @@ export async function getFloorMapData(organizationId: string): Promise<FloorMapD
     : [];
 
   const roomIds = roomRows.map((r) => r.id);
-  const startOfDay = new Date();
+  const startOfDay = new Date(targetDate);
   startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date();
+  const endOfDay = new Date(targetDate);
   endOfDay.setHours(23, 59, 59, 999);
 
   const reservationRows = roomIds.length
@@ -91,6 +101,7 @@ export async function getFloorMapData(organizationId: string): Promise<FloorMapD
     : [];
 
   const now = new Date();
+  const isToday = now >= startOfDay && now <= endOfDay;
 
   const floorsData: FloorWithRooms[] = floorRows
     .sort((a, b) => a.floorNumber - b.floorNumber)
@@ -109,9 +120,8 @@ export async function getFloorMapData(organizationId: string): Promise<FloorMapD
           const roomReservations = reservationRows
             .filter((res) => res.roomId === room.id)
             .sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
-          const isOccupiedNow = roomReservations.some(
-            (res) => res.startAt <= now && now < res.endAt,
-          );
+          const isOccupiedNow =
+            isToday && roomReservations.some((res) => res.startAt <= now && now < res.endAt);
           return { ...room, reservations: roomReservations, isOccupiedNow };
         }),
     }));
@@ -119,6 +129,8 @@ export async function getFloorMapData(organizationId: string): Promise<FloorMapD
   return {
     organizationName: org.name,
     buildingName: building.name,
+    date: toDateKey(targetDate),
+    isToday,
     floors: floorsData,
   };
 }

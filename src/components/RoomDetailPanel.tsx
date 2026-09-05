@@ -10,13 +10,6 @@ const timeFormatter = new Intl.DateTimeFormat("ja-JP", {
   minute: "2-digit",
 });
 
-function toDatetimeLocalValue(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}`;
-}
-
 const initialState: CreateReservationState = { status: "idle" };
 
 function ReservationRow({ reservation }: { reservation: RoomReservation }) {
@@ -63,17 +56,11 @@ function BookingForm({
 }: {
   roomId: string;
   onClose: () => void;
-  /** 検索条件で指定した開始・終了時刻（datetime-local文字列）。指定時はこれを初期値にする */
-  initialRange?: { start: string; end: string };
+  /** 開始・終了の初期値（datetime-local文字列）。呼び出し側（FloorMapView）が、
+   *  検索条件やフロアマップが表示中の日付を踏まえて計算済みのものを渡す */
+  initialRange: { start: string; end: string };
 }) {
   const [state, formAction] = useActionState(createReservationAction, initialState);
-
-  const now = new Date();
-  const defaultStart = new Date(now);
-  defaultStart.setMinutes(Math.ceil(defaultStart.getMinutes() / 30) * 30, 0, 0);
-  const defaultEnd = new Date(defaultStart.getTime() + 30 * 60_000);
-  const defaultStartValue = initialRange?.start ?? toDatetimeLocalValue(defaultStart);
-  const defaultEndValue = initialRange?.end ?? toDatetimeLocalValue(defaultEnd);
 
   // 予約成功後は、一覧側はServer Actionのrevalidatによって最新化される。
   // ここではフォームの代わりに完了メッセージを出し、ユーザーの操作（閉じる）でパネルを閉じる。
@@ -123,7 +110,7 @@ function BookingForm({
             type="datetime-local"
             name="startAt"
             required
-            defaultValue={defaultStartValue}
+            defaultValue={initialRange.start}
             className="mt-0.5 w-full rounded border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/10"
           />
         </div>
@@ -133,7 +120,7 @@ function BookingForm({
             type="datetime-local"
             name="endAt"
             required
-            defaultValue={defaultEndValue}
+            defaultValue={initialRange.end}
             className="mt-0.5 w-full rounded border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/10"
           />
         </div>
@@ -165,15 +152,23 @@ function BookingForm({
 export function RoomDetailPanel({
   room,
   onClose,
+  dateLabel,
+  isToday,
   initialBookingRange,
 }: {
   room: RoomWithReservations;
   /** フロアマップ上のポップオーバーとして表示している場合の閉じるボタン。指定時のみ表示する */
   onClose?: () => void;
-  /** 会議室検索で開始・終了時刻を指定していた場合、予約フォームの初期値として引き継ぐ */
-  initialBookingRange?: { start: string; end: string };
+  /** フロアマップが表示中の日付の表示用ラベル（今日なら"本日"、それ以外は"9月6日(日)"のような形式） */
+  dateLabel: string;
+  /** dateLabelが今日を指しているか。falseの場合、「使用中」ではなく「予約あり」と表示する
+   *  （過去・未来の日付には「今まさに使用中か」という概念が無いため） */
+  isToday: boolean;
+  /** 予約フォームの開始・終了の初期値（datetime-local文字列） */
+  initialBookingRange: { start: string; end: string };
 }) {
   const [showForm, setShowForm] = useState(false);
+  const isBusy = isToday ? room.isOccupiedNow : room.reservations.length > 0;
 
   return (
     <div className="rounded-lg border border-black/10 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-neutral-900">
@@ -182,12 +177,12 @@ export function RoomDetailPanel({
         <div className="flex items-center gap-2">
           <span
             className={
-              room.isOccupiedNow
+              isBusy
                 ? "rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
                 : "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
             }
           >
-            {room.isOccupiedNow ? "使用中" : "空き"}
+            {isBusy ? (isToday ? "使用中" : "予約あり") : "空き"}
           </span>
           {onClose && (
             <button
@@ -205,9 +200,9 @@ export function RoomDetailPanel({
         <p className="mt-1 text-sm text-neutral-500">定員 {room.capacity}名</p>
       )}
 
-      <h3 className="mt-4 text-sm font-medium text-neutral-500">本日の予約</h3>
+      <h3 className="mt-4 text-sm font-medium text-neutral-500">{dateLabel}の予約</h3>
       {room.reservations.length === 0 ? (
-        <p className="mt-1 text-sm text-neutral-400">本日の予約はありません</p>
+        <p className="mt-1 text-sm text-neutral-400">{dateLabel}の予約はありません</p>
       ) : (
         // 予約件数によってパネルの高さが変動しないよう、一定件数を超えたら内側でスクロールさせる
         <ul className="mt-1 max-h-56 space-y-1 overflow-y-auto">

@@ -1,13 +1,31 @@
 import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/AppHeader";
 import { CreateFirstBuildingForm } from "@/components/CreateFirstBuildingForm";
+import { DateNav } from "@/components/DateNav";
 import { FloorMapView } from "@/components/FloorMapView";
 import { getAuthContext } from "@/lib/auth/getAuthContext";
+import { parseDateKey } from "@/lib/dateKey";
 import { getFloorMapData } from "@/lib/queries/getFloorMapData";
 
 export const dynamic = "force-dynamic"; // 「今使用中か」やセッション状態を毎回サーバーで判定するため
 
-export default async function Home() {
+/**
+ * "?date=YYYY-MM-DD"を解釈する。無指定・不正な値なら今日にフォールバックする。
+ */
+function resolveSelectedDate(dateParam: string | undefined): Date {
+  if (dateParam) {
+    const parsed = parseDateKey(dateParam);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return new Date();
+}
+
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string }>;
+}) {
+  const { date: dateParam } = await searchParams;
   const { authUser, member } = await getAuthContext();
 
   if (!authUser) {
@@ -23,7 +41,8 @@ export default async function Home() {
     );
   }
 
-  const data = await getFloorMapData(member.organizationId);
+  const selectedDate = resolveSelectedDate(dateParam);
+  const data = await getFloorMapData(member.organizationId, selectedDate);
 
   if (!data) {
     if (member.role !== "admin") {
@@ -57,6 +76,9 @@ export default async function Home() {
         accountName={member.name}
         accountImage={authUser.image}
       />
+      <div className="mb-4">
+        <DateNav dateKey={data.date} isToday={data.isToday} />
+      </div>
       <FloorMapView data={data} isAdmin={member.role === "admin"} />
     </main>
   );
