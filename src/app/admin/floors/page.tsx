@@ -1,6 +1,6 @@
 import { eq, inArray } from "drizzle-orm";
 import { redirect } from "next/navigation";
-import { AdminNav } from "@/components/AdminNav";
+import { AppHeader } from "@/components/AppHeader";
 import { CreateFloorForm } from "@/components/CreateFloorForm";
 import { FloorRow } from "@/components/FloorRow";
 import { getAuthContext } from "@/lib/auth/getAuthContext";
@@ -34,8 +34,15 @@ export default async function AdminFloorsPage() {
   if (!building) {
     return (
       <main className="mx-auto max-w-2xl px-6 py-8">
-        <AdminNav current="/admin/floors" />
-        <p className="mt-6 text-sm text-neutral-500">
+        <AppHeader
+          title="フロア管理"
+          isAdmin
+          currentPath="/admin/floors"
+          accountEmail={member.email}
+          accountName={member.name}
+          accountImage={authUser.image}
+        />
+        <p className="text-sm text-neutral-500">
           建物がまだ登録されていません。先にトップページから建物・最初のフロアを登録してください。
         </p>
       </main>
@@ -75,9 +82,15 @@ export default async function AdminFloorsPage() {
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-8">
-      <AdminNav current="/admin/floors" />
-      <h1 className="mt-4 text-xl font-semibold">フロア管理</h1>
-      <p className="mt-1 text-sm text-neutral-500">{building.name}</p>
+      <AppHeader
+        title="フロア管理"
+        subtitle={building.name}
+        isAdmin
+        currentPath="/admin/floors"
+        accountEmail={member.email}
+        accountName={member.name}
+        accountImage={authUser.image}
+      />
 
       <section className="mt-6">
         <h2 className="text-sm font-medium text-neutral-500">フロアを追加</h2>

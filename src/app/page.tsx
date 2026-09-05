@@ -1,8 +1,7 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AppHeader } from "@/components/AppHeader";
 import { CreateFirstBuildingForm } from "@/components/CreateFirstBuildingForm";
 import { FloorMapView } from "@/components/FloorMapView";
-import { LogoutButton } from "@/components/LogoutButton";
 import { getAuthContext } from "@/lib/auth/getAuthContext";
 import { getFloorMapData } from "@/lib/queries/getFloorMapData";
 
@@ -49,32 +48,15 @@ export default async function Home() {
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-8">
-      <header className="mb-6 flex items-start justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">{data.buildingName} 会議室マップ</h1>
-          <p className="text-sm text-neutral-500">{data.organizationName}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-neutral-400">{member.email}</span>
-          {member.role === "admin" && (
-            <>
-              <Link
-                href="/admin/floors"
-                className="text-xs text-neutral-500 underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200"
-              >
-                フロア管理
-              </Link>
-              <Link
-                href="/admin/invitations"
-                className="text-xs text-neutral-500 underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200"
-              >
-                メンバー招待
-              </Link>
-            </>
-          )}
-          <LogoutButton />
-        </div>
-      </header>
+      <AppHeader
+        title={`${data.buildingName} 会議室マップ`}
+        subtitle={data.organizationName}
+        isAdmin={member.role === "admin"}
+        currentPath="/"
+        accountEmail={member.email}
+        accountName={member.name}
+        accountImage={authUser.image}
+      />
       <FloorMapView data={data} isAdmin={member.role === "admin"} />
     </main>
   );

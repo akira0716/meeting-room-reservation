@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth/getAuthContext";
 import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
-import { AdminNav } from "@/components/AdminNav";
+import { AppHeader } from "@/components/AppHeader";
 import { CreateInvitationForm } from "@/components/CreateInvitationForm";
 import { MemberRow } from "@/components/MemberRow";
 
@@ -32,8 +32,14 @@ export default async function AdminInvitationsPage() {
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-8">
-      <AdminNav current="/admin/invitations" />
-      <h1 className="mt-4 text-xl font-semibold">メンバー招待</h1>
+      <AppHeader
+        title="メンバー招待"
+        isAdmin
+        currentPath="/admin/invitations"
+        accountEmail={member.email}
+        accountName={member.name}
+        accountImage={authUser.image}
+      />
 
       <section className="mt-6">
         <h2 className="text-sm font-medium text-neutral-500">新しいメンバーを招待</h2>
