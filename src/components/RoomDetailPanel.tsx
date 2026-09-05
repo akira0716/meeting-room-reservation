@@ -171,7 +171,8 @@ export function RoomDetailPanel({ room }: { room: RoomWithReservations }) {
       {room.reservations.length === 0 ? (
         <p className="mt-1 text-sm text-neutral-400">本日の予約はありません</p>
       ) : (
-        <ul className="mt-1 space-y-1">
+        // 予約件数によってパネルの高さが変動しないよう、一定件数を超えたら内側でスクロールさせる
+        <ul className="mt-1 max-h-56 space-y-1 overflow-y-auto">
           {room.reservations.map((r) => (
             <ReservationRow key={r.id} reservation={r} />
           ))}
