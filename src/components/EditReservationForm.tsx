@@ -72,8 +72,13 @@ export function EditReservationForm({
             className="mt-0.5 w-full rounded border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/10"
           />
         </div>
-        <div className="flex gap-2">
-          <div className="flex-1">
+        {/* このポップオーバーは幅300px固定で、開始・終了を横並び（flex-1×2）にすると
+            datetime-local入力欄の最小幅（ブラウザネイティブの日時ピッカー分、flex
+            アイテムはデフォルトでこれより縮まない）に収まらず、右側の終了欄がパネル
+            の外にはみ出し横スクロールが発生してしまう（BookingFormと同じ不具合）。
+            縦積みにしてそれぞれ全幅を使わせることで、はみ出しを確実に防ぐ。 */}
+        <div className="flex flex-col gap-2">
+          <div>
             <label className="block text-xs font-medium text-neutral-500">開始</label>
             <input
               type="datetime-local"
@@ -83,7 +88,7 @@ export function EditReservationForm({
               className="mt-0.5 w-full rounded border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/10"
             />
           </div>
-          <div className="flex-1">
+          <div>
             <label className="block text-xs font-medium text-neutral-500">終了</label>
             <input
               type="datetime-local"

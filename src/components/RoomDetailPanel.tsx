@@ -15,23 +15,26 @@ const initialState: CreateReservationState = { status: "idle" };
 function ReservationRow({
   reservation,
   canModify,
+  isEditing,
+  onStartEdit,
+  onStopEdit,
 }: {
   reservation: RoomReservation;
   /** この予約を編集・削除できるか（予約者本人または管理者のみ）。falseなら「編集」ボタン自体を出さない */
   canModify: boolean;
+  /** 編集中かどうかは呼び出し元（RoomDetailPanel）で管理する。編集中は一覧の
+   *  高さ制限（overflow-y-auto）を外し、編集フォームが縦スクロールなしで
+   *  全部収まるようにするため */
+  isEditing: boolean;
+  onStartEdit: () => void;
+  onStopEdit: () => void;
 }) {
-  const [showEdit, setShowEdit] = useState(false);
-
-  if (showEdit) {
+  if (isEditing) {
     return (
       <li>
         {/* versionをkeyにすることで、他のユーザーの更新をrouter.refresh()で取り込んだ際に
             フォームが最新の初期値で作り直される（useActionStateの状態もリセットされる） */}
-        <EditReservationForm
-          key={reservation.version}
-          reservation={reservation}
-          onClose={() => setShowEdit(false)}
-        />
+        <EditReservationForm key={reservation.version} reservation={reservation} onClose={onStopEdit} />
       </li>
     );
   }
@@ -51,7 +54,7 @@ function ReservationRow({
       {canModify && (
         <button
           type="button"
-          onClick={() => setShowEdit(true)}
+          onClick={onStartEdit}
           className="shrink-0 text-xs text-neutral-500 underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200"
         >
           編集
@@ -186,6 +189,7 @@ export function RoomDetailPanel({
   initialBookingRange: { start: string; end: string };
 }) {
   const [showForm, setShowForm] = useState(false);
+  const [editingReservationId, setEditingReservationId] = useState<string | null>(null);
   const isBusy = isToday ? room.isOccupiedNow : room.reservations.length > 0;
 
   return (
@@ -222,13 +226,26 @@ export function RoomDetailPanel({
       {room.reservations.length === 0 ? (
         <p className="mt-1 text-sm text-neutral-400">{dateLabel}の予約はありません</p>
       ) : (
-        // 予約件数によってパネルの高さが変動しないよう、一定件数を超えたら内側でスクロールさせる
-        <ul className="mt-1 max-h-56 space-y-1 overflow-y-auto">
+        <ul
+          className={
+            // 予約件数によってパネルの高さが変動しないよう、通常時は一定件数を超えたら
+            // 内側でスクロールさせる。ただし編集中は、開始・終了欄を含む編集フォーム全体が
+            // この高さ制限に収まらず縦スクロールバーが出てしまうため、編集中に限り
+            // 高さ制限自体を外す（同時に編集できるのは1件だけなので、外しても
+            // パネルが際限なく伸びることはない）
+            editingReservationId
+              ? "mt-1 space-y-1"
+              : "mt-1 max-h-56 space-y-1 overflow-y-auto"
+          }
+        >
           {room.reservations.map((r) => (
             <ReservationRow
               key={r.id}
               reservation={r}
               canModify={isAdmin || r.createdByUserId === currentMemberId}
+              isEditing={editingReservationId === r.id}
+              onStartEdit={() => setEditingReservationId(r.id)}
+              onStopEdit={() => setEditingReservationId(null)}
             />
           ))}
         </ul>
