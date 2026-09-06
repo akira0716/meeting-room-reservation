@@ -597,7 +597,9 @@ export function FloorMapView({
         </div>
       )}
 
-      {isAdmin && selectedFloor && <FloorPlanUploadForm floorId={selectedFloor.id} />}
+      {/* フロア図の差し替えも「会議室の配置を編集」と同じくレイアウトを変更する管理者操作
+          のため、通常閲覧時（編集モード外）には出さず、編集モード中のみ表示する */}
+      {isAdmin && isEditMode && selectedFloor && <FloorPlanUploadForm floorId={selectedFloor.id} />}
 
       <div className="mt-4">
         {/*
