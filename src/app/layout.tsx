@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "フロアマップ会議室予約",
+  title: "Roomap ｜ フロアマップ会議室予約",
   description: "会議室の空き状況をフロアマップ上で確認し、そのまま予約できるアプリ",
 };
 
