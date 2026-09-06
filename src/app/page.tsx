@@ -1,8 +1,8 @@
-import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/AppHeader";
 import { CreateFirstBuildingForm } from "@/components/CreateFirstBuildingForm";
 import { DateNav } from "@/components/DateNav";
 import { FloorMapView } from "@/components/FloorMapView";
+import { LandingPage } from "@/components/LandingPage";
 import { getAuthContext } from "@/lib/auth/getAuthContext";
 import { parseDateKey } from "@/lib/dateKey";
 import { getFloorMapData } from "@/lib/queries/getFloorMapData";
@@ -28,8 +28,9 @@ export default async function Home({
   const { date: dateParam } = await searchParams;
   const { authUser, member } = await getAuthContext();
 
+  // 未サインインの訪問者には、サインインを要求する代わりにLP（ランディングページ）を表示する
   if (!authUser) {
-    redirect("/login");
+    return <LandingPage />;
   }
   if (!member) {
     return (

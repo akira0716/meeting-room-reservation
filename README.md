@@ -1,8 +1,8 @@
-# フロアマップ会議室予約（仮称）
+# Roomap（フロアマップ会議室予約）
 
 会議室の空き状況を「フロアマップ」上で視覚的に確認しながら、そのまま予約できるWebアプリ。
 
-**デモ**：https://meeting-room-reservation-theta.vercel.app/login （招待制のためサインインには管理者の招待が必要）
+**デモ**：https://meeting-room-reservation-theta.vercel.app/ （LPから遷移。既存組織へのサインインには管理者の招待が必要。新規組織は`/signup`からセルフサインアップ可能）
 
 ## 1. 課題発見の経緯
 
