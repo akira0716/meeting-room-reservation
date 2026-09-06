@@ -3,9 +3,10 @@ import { LogoutButton } from "./LogoutButton";
 import { SiteNav, type SitePath } from "./SiteNav";
 
 /**
- * 会議室マップ・フロア管理・メンバー招待の3画面で共通利用するヘッダー。
- * 管理者には常にページ間ナビ（現在地の強調表示つき）を出すことで、
- * 管理画面から会議室マップへ戻る導線が無かった問題も合わせて解消している。
+ * 会議室マップ・カレンダー・フロア管理・メンバー招待の各画面で共通利用するヘッダー。
+ * 全メンバーに常にページ間ナビ（現在地の強調表示つき）を出すことで、管理画面から
+ * 会議室マップへ戻る導線が無かった問題も合わせて解消している（管理者にはさらに
+ * フロア管理・メンバー招待も表示する。表示するリンクの出し分けはSiteNav側で行う）。
  */
 export function AppHeader({
   title,
@@ -31,7 +32,7 @@ export function AppHeader({
         {subtitle && <p className="text-sm text-neutral-500">{subtitle}</p>}
       </div>
       <div className="flex items-center gap-4">
-        {isAdmin && <SiteNav current={currentPath} />}
+        <SiteNav current={currentPath} isAdmin={isAdmin} />
         <AccountMenu email={accountEmail} name={accountName} image={accountImage}>
           <LogoutButton />
         </AccountMenu>
