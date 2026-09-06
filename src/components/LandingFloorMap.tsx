@@ -33,10 +33,17 @@ function pct(value: number, total: number): string {
   return `${(value / total) * 100}%`;
 }
 
-/** LPのヒーロー用、ダーク配色の静的なフロアマップ・イラスト（クリック等の操作は無し） */
-export function LandingFloorMap() {
+/**
+ * ダーク配色の静的なフロアマップ・イラスト（クリック等の操作は無し）。
+ * LPのヒーローとログイン画面（AuthScreen）の両方で使い回すため、外枠の角丸は
+ * 呼び出し側で指定できるようにしている（LPはヒーロー画像として下側のみ角丸、
+ * ログイン画面はカード全体として四隅角丸で使う）
+ */
+export function LandingFloorMap({ className = "rounded-b-[10px]" }: { className?: string }) {
   return (
-    <div className="relative aspect-[660/400] w-full rounded-b-[10px] bg-[repeating-linear-gradient(45deg,#1a1a1a_0,#1a1a1a_8px,#161616_8px,#161616_16px)]">
+    <div
+      className={`relative aspect-[660/400] w-full bg-[repeating-linear-gradient(45deg,#1a1a1a_0,#1a1a1a_8px,#161616_8px,#161616_16px)] ${className}`}
+    >
       {ROOMS.map((room) => {
         const roomy = room.w >= 200 && room.h >= 110;
         const showMeta = roomy && room.cap !== "";
