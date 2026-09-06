@@ -1,23 +1,28 @@
 import Link from "next/link";
 
-const SITE_LINKS = [
+const BASE_LINKS = [
   { href: "/", label: "会議室マップ" },
+  { href: "/calendar", label: "カレンダー" },
+] as const;
+
+const ADMIN_LINKS = [
   { href: "/admin/floors", label: "フロア管理" },
   { href: "/admin/invitations", label: "メンバー招待" },
 ] as const;
 
-export type SitePath = (typeof SITE_LINKS)[number]["href"];
+export type SitePath = (typeof BASE_LINKS)[number]["href"] | (typeof ADMIN_LINKS)[number]["href"];
 
 /**
- * 管理者向けのページ間ナビ（会議室マップ・フロア管理・メンバー招待）。
- * 管理画面に入ると会議室マップへ戻る導線が無かったため、常に3つのリンクを
- * まとめて表示する（現在地はリンクにせず強調表示のみ）。一般メンバーは
- * 管理画面自体を利用できないため、AppHeader側でisAdminのときだけ表示する。
+ * 全メンバー向けのページ間ナビ（会議室マップ・カレンダー）に、管理者には
+ * さらにフロア管理・メンバー招待を加えて表示する。管理画面に入ると会議室
+ * マップへ戻る導線が無かったため、常にリンクをまとめて表示する（現在地は
+ * リンクにせず強調表示のみ）。
  */
-export function SiteNav({ current }: { current: SitePath }) {
+export function SiteNav({ current, isAdmin }: { current: SitePath; isAdmin: boolean }) {
+  const links = isAdmin ? [...BASE_LINKS, ...ADMIN_LINKS] : BASE_LINKS;
   return (
     <nav className="flex gap-3 text-xs">
-      {SITE_LINKS.map((link) =>
+      {links.map((link) =>
         link.href === current ? (
           <span key={link.href} className="font-medium text-neutral-900 dark:text-white">
             {link.label}
