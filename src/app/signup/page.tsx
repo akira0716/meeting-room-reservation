@@ -1,3 +1,4 @@
+import { AuthScreen } from "@/components/AuthScreen";
 import { startOwnerSignup } from "./actions";
 
 const errorMessages: Record<string, string> = {
@@ -13,18 +14,16 @@ export default async function SignupPage({
   const { error } = await searchParams;
 
   return (
-    <main className="mx-auto max-w-sm px-6 py-16">
-      <h1 className="text-lg font-semibold">組織を新しく始める</h1>
-      <p className="mt-1 text-sm text-neutral-500">
-        あなたが組織のオーナー（管理者）として登録されます。建物やフロアの登録は、
-        サインイン後の画面から行います。
-      </p>
-      {error && (
-        <p className="mt-3 text-sm text-rose-600 dark:text-rose-400">
-          {errorMessages[error] ?? "登録に失敗しました。時間をおいて再度お試しください。"}
-        </p>
-      )}
-      <form action={startOwnerSignup} className="mt-4 space-y-3">
+    <AuthScreen
+      title="組織を新しく始める"
+      lead="あなたが組織のオーナー（管理者）として登録されます。建物やフロアの登録は、サインイン後の画面から行います。"
+      error={
+        error ? (errorMessages[error] ?? "登録に失敗しました。時間をおいて再度お試しください。") : undefined
+      }
+      switchHref="/login"
+      switchLabel="既存の組織にサインインする方はこちら"
+    >
+      <form action={startOwnerSignup} className="space-y-3.5">
         <div>
           <label className="block text-xs font-medium text-neutral-500">組織名</label>
           <input
@@ -32,22 +31,19 @@ export default async function SignupPage({
             name="organizationName"
             required
             placeholder="株式会社サンプル"
-            className="mt-0.5 w-full rounded border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/10"
+            className="mt-1.5 w-full rounded-[9px] border border-neutral-200 bg-neutral-50 px-[13px] py-[11px] text-sm text-neutral-900 outline-none focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-50"
           />
         </div>
         <button
           type="submit"
-          className="w-full rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+          className="flex w-full items-center justify-center gap-2.5 rounded-[10px] bg-emerald-700 px-[18px] py-[13px] text-sm font-semibold text-white hover:bg-emerald-800"
         >
           Googleでサインアップ
         </button>
       </form>
-      <a
-        href="/login"
-        className="mt-4 block text-xs text-neutral-500 underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200"
-      >
-        既存の組織にサインインする方はこちら
-      </a>
-    </main>
+      <p className="mt-3.5 text-xs leading-[1.8] text-neutral-500">
+        Googleの認証画面に移動します。パスワードの登録は不要です。
+      </p>
+    </AuthScreen>
   );
 }
