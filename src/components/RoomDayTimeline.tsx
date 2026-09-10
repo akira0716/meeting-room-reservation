@@ -3,6 +3,8 @@
 import { useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import {
   clampDragRange,
+  clampMoveRange,
+  clampResizeEnd,
   computeBlockLayoutPx,
   computeTimelineRange,
   finalizeDragRange,
@@ -28,6 +30,11 @@ const VIEWPORT_MAX_PX = 360;
 const HOUR_LABEL_WIDTH_PX = 40;
 // 15分未満の短い予約でもクリックできる・視認できるよう、ブロックの高さの下限を設ける
 const MIN_BLOCK_HEIGHT_PX = 16;
+// 既存予約ブロック下端のリサイズハンドルの高さ
+const RESIZE_HANDLE_HEIGHT_PX = 6;
+
+type MoveDrag = { kind: "move"; id: string; original: TimeRange; anchor: Date; pointer: Date };
+type ResizeDrag = { kind: "resize"; id: string; original: TimeRange; pointer: Date };
 
 /**
  * 会議室1件・1日分の予約を、Outlookのようなタイムライン（縦軸＝時刻）で表示する。
@@ -41,6 +48,13 @@ const MIN_BLOCK_HEIGHT_PX = 16;
  * 行わず、あくまで「予約フォームの開始・終了時刻を決める手段」として使う
  * （送信前に微調整できるよう、既存のdatetime-local欄はRoomDetailPanel側にそのまま残す）。
  *
+ * 編集可能な既存予約は、ブロック本体をドラッグすると移動（長さは維持）、下端のハンドルを
+ * ドラッグするとリサイズ（終了時刻のみ変更）できる。どちらも実際に動かした場合のみ
+ * onReservationTimeChangeを呼び出し（サーバーへの反映はRoomDetailPanel側が行う）、
+ * 動かさずにクリックしただけの場合は従来どおりonSelectReservationを呼ぶ（編集フォームを開く）。
+ * 上端のリサイズ（開始時刻の変更）は、会議室のリサイズハンドルが右下角のみなのと同様、
+ * 今回はスコープを絞って対応していない。
+ *
  * 同じ会議室の予約同士は重ならない前提（サーバー側のisOverlappingチェックで保証される）
  * のため、重複時に横に並べるレイアウトは扱わない。
  */
@@ -52,6 +66,7 @@ export function RoomDayTimeline({
   selectedReservationId,
   onSelectReservation,
   onRangeSelect,
+  onReservationTimeChange,
 }: {
   /** タイムラインの対象日（"YYYY-MM-DD"）。表示範囲の基準にする */
   dateKey: string;
@@ -65,11 +80,9 @@ export function RoomDayTimeline({
   onSelectReservation: (reservationId: string) => void;
   /** 空き時間をドラッグして時間帯を選択したときに呼ばれる */
   onRangeSelect: (range: TimeRange) => void;
+  /** 既存予約をドラッグで移動・リサイズし、実際に時間が変わったときに呼ばれる */
+  onReservationTimeChange: (reservationId: string, range: TimeRange) => void;
 }) {
-  const reservationRanges: TimeRange[] = reservations.map((r) => ({
-    start: r.startAt,
-    end: r.endAt,
-  }));
   const range = computeTimelineRange(dateKey);
   const totalHeightPx = getTimelineHeightPx(range, PX_PER_HOUR);
   const hourMarks = getHourMarks(range);
@@ -81,10 +94,12 @@ export function RoomDayTimeline({
     : 0;
 
   const contentRef = useRef<HTMLDivElement>(null);
-  // ドラッグ中の選択範囲。anchor=ドラッグを開始した固定点、pointer=現在のポインタ位置。
+  // 空き時間の新規選択ドラッグ。anchor=ドラッグを開始した固定点、pointer=現在のポインタ位置。
   // どちらも既存予約とはまだクランプしていない生の時刻で持ち、表示直前にclampDragRangeを
   // 通す（pointerupの確定にはfinalizeDragRangeを使うため、ロジックを重複させないため）。
   const [drag, setDrag] = useState<{ anchor: Date; pointer: Date } | null>(null);
+  // 既存予約の移動・リサイズドラッグ。新規選択（drag）とは排他（同時に1つまで）
+  const [reservationDrag, setReservationDrag] = useState<MoveDrag | ResizeDrag | null>(null);
 
   function yToDate(clientY: number): Date {
     const el = contentRef.current;
@@ -93,6 +108,13 @@ export function RoomDayTimeline({
     const y = Math.min(Math.max(clientY - rect.top, 0), totalHeightPx);
     const ms = range.start.getTime() + (y / PX_PER_HOUR) * 60 * 60 * 1000;
     return roundToNearestMinutes(new Date(ms), DRAG_SNAP_MINUTES);
+  }
+
+  /** reservationsから、指定したID以外の{start, end}の配列を返す（クランプ計算で自分自身を除外するため） */
+  function otherRanges(excludeId: string): TimeRange[] {
+    return reservations
+      .filter((r) => r.id !== excludeId)
+      .map((r) => ({ start: r.startAt, end: r.endAt }));
   }
 
   function handlePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
@@ -110,6 +132,7 @@ export function RoomDayTimeline({
   function endDrag(e: ReactPointerEvent<HTMLDivElement>) {
     if (!drag) return;
     e.currentTarget.releasePointerCapture(e.pointerId);
+    const reservationRanges = reservations.map((r) => ({ start: r.startAt, end: r.endAt }));
     const finalRange = finalizeDragRange(drag.anchor, drag.pointer, reservationRanges);
     setDrag(null);
     if (finalRange.end.getTime() > finalRange.start.getTime()) {
@@ -117,10 +140,104 @@ export function RoomDayTimeline({
     }
   }
 
-  const dragPreview = drag ? clampDragRange(drag.anchor, drag.pointer, reservationRanges) : null;
+  function handleReservationPointerDown(
+    e: ReactPointerEvent<HTMLDivElement>,
+    reservation: RoomReservation,
+  ) {
+    if (e.button !== 0) return;
+    e.stopPropagation(); // タイムライン本体（新規選択）のドラッグ開始を防ぐ
+    const anchor = yToDate(e.clientY);
+    setReservationDrag({
+      kind: "move",
+      id: reservation.id,
+      original: { start: reservation.startAt, end: reservation.endAt },
+      anchor,
+      pointer: anchor,
+    });
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function handleResizeHandlePointerDown(
+    e: ReactPointerEvent<HTMLDivElement>,
+    reservation: RoomReservation,
+  ) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    setReservationDrag({
+      kind: "resize",
+      id: reservation.id,
+      original: { start: reservation.startAt, end: reservation.endAt },
+      pointer: reservation.endAt,
+    });
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function handleReservationPointerMove(e: ReactPointerEvent<HTMLElement>) {
+    // リサイズハンドルはブロック本体の内側にあり、どちらも同じハンドラを付けているため、
+    // 何もしないとイベントがハンドルからブロック本体へバブリングしてハンドラが二重に
+    // 呼ばれてしまう（pointer captureは対象の要素を固定するだけで、バブリング自体は
+    // 通常どおり起こる）。ここで止めて二重発火を防ぐ
+    e.stopPropagation();
+    if (!reservationDrag) return;
+    const pointer = yToDate(e.clientY);
+    setReservationDrag({ ...reservationDrag, pointer });
+  }
+
+  function endReservationDrag(e: ReactPointerEvent<HTMLElement>) {
+    // handleReservationPointerMoveと同じ理由でバブリングを止める（二重にサーバーへ
+    // 送信してしまうのを防ぐ）
+    e.stopPropagation();
+    if (!reservationDrag) return;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    const { id, original } = reservationDrag;
+    const others = otherRanges(id);
+
+    if (reservationDrag.kind === "move") {
+      const hasMoved = reservationDrag.pointer.getTime() !== reservationDrag.anchor.getTime();
+      setReservationDrag(null);
+      if (!hasMoved) {
+        onSelectReservation(id); // 実質クリックのみ：従来どおり編集フォームを開く
+        return;
+      }
+      const deltaMs = reservationDrag.pointer.getTime() - reservationDrag.anchor.getTime();
+      const finalRange = clampMoveRange(original, deltaMs, others, range);
+      if (finalRange.start.getTime() !== original.start.getTime()) {
+        onReservationTimeChange(id, finalRange);
+      }
+    } else {
+      setReservationDrag(null);
+      const newEnd = clampResizeEnd(original.start, reservationDrag.pointer, others, range.end);
+      if (newEnd.getTime() !== original.end.getTime() && newEnd.getTime() > original.start.getTime()) {
+        onReservationTimeChange(id, { start: original.start, end: newEnd });
+      }
+    }
+  }
+
+  const dragPreview = drag ? clampDragRange(drag.anchor, drag.pointer, reservations.map((r) => ({ start: r.startAt, end: r.endAt }))) : null;
   const dragPreviewLayout = dragPreview
     ? computeBlockLayoutPx(range, dragPreview, PX_PER_HOUR)
     : null;
+
+  // 移動・リサイズ中の予約のプレビュー時間帯（表示用）。確定前のクランプ結果をそのまま見せる
+  let reservationDragPreview: { id: string; range: TimeRange } | null = null;
+  if (reservationDrag) {
+    const others = otherRanges(reservationDrag.id);
+    if (reservationDrag.kind === "move") {
+      const deltaMs = reservationDrag.pointer.getTime() - reservationDrag.anchor.getTime();
+      reservationDragPreview = {
+        id: reservationDrag.id,
+        range: clampMoveRange(reservationDrag.original, deltaMs, others, range),
+      };
+    } else {
+      reservationDragPreview = {
+        id: reservationDrag.id,
+        range: {
+          start: reservationDrag.original.start,
+          end: clampResizeEnd(reservationDrag.original.start, reservationDrag.pointer, others, range.end),
+        },
+      };
+    }
+  }
 
   return (
     <div
@@ -175,11 +292,12 @@ export function RoomDayTimeline({
         )}
 
         {reservations.map((reservation) => {
-          const { topPx, heightPx } = computeBlockLayoutPx(
-            range,
-            { start: reservation.startAt, end: reservation.endAt },
-            PX_PER_HOUR,
-          );
+          // 移動・リサイズ中の予約は、通常のブロックの代わりに専用のプレビューを描画する
+          const isBeingDragged = reservationDragPreview?.id === reservation.id;
+          const displayRange = isBeingDragged
+            ? reservationDragPreview!.range
+            : { start: reservation.startAt, end: reservation.endAt };
+          const { topPx, heightPx } = computeBlockLayoutPx(range, displayRange, PX_PER_HOUR);
           if (heightPx <= 0) return null;
 
           const editable = canModify(reservation);
@@ -196,6 +314,7 @@ export function RoomDayTimeline({
               ? "border-l-indigo-500 bg-indigo-50 dark:bg-indigo-500/10"
               : "border-l-neutral-300 bg-neutral-100 dark:border-l-neutral-600 dark:bg-neutral-800",
             isSelected ? "ring-2 ring-indigo-500" : "",
+            isBeingDragged ? "opacity-80 shadow-md ring-2 ring-indigo-500" : "",
           ]
             .filter(Boolean)
             .join(" ");
@@ -207,11 +326,13 @@ export function RoomDayTimeline({
             right: 2,
           };
 
-          // どちらの分岐も、pointerdownの時点でstopPropagationし、下（タイムライン本体）の
-          // onPointerDownに伝播させない。既存の予約ブロックの上からドラッグ選択が
-          // 始まってしまうのを防ぐため（clampDragRangeはanchorが予約の外にあることを
-          // 前提にしているわけではないが、UI上は既存の予約の上から新規選択を開始
-          // できないようにしておいた方が直感的）。
+          const displayLabel = isBeingDragged
+            ? `${timeFormatter.format(displayRange.start)}–${timeFormatter.format(displayRange.end)} ${reservation.title}`
+            : label;
+
+          // 編集不可のブロックは、pointerdownの時点でstopPropagationし、下（タイムライン
+          // 本体）のonPointerDownに伝播させない。既存の予約ブロックの上から新規選択の
+          // ドラッグが始まってしまうのを防ぐため。
           if (!editable) {
             return (
               <div
@@ -226,14 +347,27 @@ export function RoomDayTimeline({
             );
           }
 
+          // ドラッグでの移動・リサイズは独自のpointerイベントで実装しており、ネイティブの
+          // <button>のクリック挙動には乗らない（クリックかドラッグかはendReservationDrag側で
+          // 移動量から判定する）ため、リサイズハンドル（内側の要素）を持てるよう<div>にし、
+          // role/tabIndexとキーボード操作（Enter/Space）で最低限のアクセシビリティを保つ。
           return (
-            <button
+            <div
               key={reservation.id}
-              type="button"
-              title={label}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => onSelectReservation(reservation.id)}
-              className={`${blockClassName} hover:bg-indigo-100 dark:hover:bg-indigo-500/20`}
+              role="button"
+              tabIndex={0}
+              title={displayLabel}
+              onPointerDown={(e) => handleReservationPointerDown(e, reservation)}
+              onPointerMove={handleReservationPointerMove}
+              onPointerUp={endReservationDrag}
+              onPointerCancel={endReservationDrag}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelectReservation(reservation.id);
+                }
+              }}
+              className={`${blockClassName} cursor-grab active:cursor-grabbing hover:bg-indigo-100 dark:hover:bg-indigo-500/20`}
               style={style}
             >
               <span className="block truncate font-medium">{reservation.title}</span>
@@ -242,7 +376,16 @@ export function RoomDayTimeline({
                   {reservation.bookerName}
                 </span>
               )}
-            </button>
+              {/* 下端のリサイズハンドル。ドラッグすると終了時刻のみ変更する（開始時刻は固定） */}
+              <div
+                onPointerDown={(e) => handleResizeHandlePointerDown(e, reservation)}
+                onPointerMove={handleReservationPointerMove}
+                onPointerUp={endReservationDrag}
+                onPointerCancel={endReservationDrag}
+                className="absolute inset-x-0 bottom-0 cursor-ns-resize"
+                style={{ height: RESIZE_HANDLE_HEIGHT_PX }}
+              />
+            </div>
           );
         })}
       </div>

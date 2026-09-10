@@ -7,6 +7,8 @@ import {
   roundToNearestMinutes,
   clampDragRange,
   finalizeDragRange,
+  clampMoveRange,
+  clampResizeEnd,
 } from "./timelineLayout";
 
 describe("computeTimelineRange", () => {
@@ -189,5 +191,70 @@ describe("finalizeDragRange", () => {
       [{ start: new Date("2026-09-10T10:15"), end: new Date("2026-09-10T11:00") }],
     );
     expect(result).toEqual({ start: new Date("2026-09-10T10:00"), end: new Date("2026-09-10T10:15") });
+  });
+});
+
+describe("clampMoveRange", () => {
+  const dayRange = { start: new Date("2026-09-10T00:00"), end: new Date("2026-09-11T00:00") };
+  const original = { start: new Date("2026-09-10T10:00"), end: new Date("2026-09-10T11:00") };
+
+  it("ぶつかる予約が無ければ、長さを保ったままdeltaMsぶん移動する", () => {
+    const result = clampMoveRange(original, 60 * 60_000, [], dayRange);
+    expect(result).toEqual({ start: new Date("2026-09-10T11:00"), end: new Date("2026-09-10T12:00") });
+  });
+
+  it("未来方向への移動が既存予約にぶつかる場合、その手前で止める（長さは維持）", () => {
+    const result = clampMoveRange(
+      original,
+      90 * 60_000, // 11:30に移動しようとする
+      [{ start: new Date("2026-09-10T12:00"), end: new Date("2026-09-10T13:00") }],
+      dayRange,
+    );
+    expect(result).toEqual({ start: new Date("2026-09-10T11:00"), end: new Date("2026-09-10T12:00") });
+  });
+
+  it("過去方向への移動が既存予約にぶつかる場合、その手前で止める（長さは維持）", () => {
+    const result = clampMoveRange(
+      original,
+      -90 * 60_000, // 8:30に移動しようとする
+      [{ start: new Date("2026-09-10T08:00"), end: new Date("2026-09-10T09:00") }],
+      dayRange,
+    );
+    expect(result).toEqual({ start: new Date("2026-09-10T09:00"), end: new Date("2026-09-10T10:00") });
+  });
+
+  it("対象日の範囲を超えて移動しようとした場合、範囲内でクランプする", () => {
+    const result = clampMoveRange(original, -20 * 60 * 60_000, [], dayRange);
+    expect(result).toEqual({ start: new Date("2026-09-10T00:00"), end: new Date("2026-09-10T01:00") });
+  });
+});
+
+describe("clampResizeEnd", () => {
+  const dayEnd = new Date("2026-09-11T00:00");
+  const start = new Date("2026-09-10T10:00");
+
+  it("ぶつかる予約が無ければ、指定した終了時刻をそのまま返す", () => {
+    const result = clampResizeEnd(start, new Date("2026-09-10T11:30"), [], dayEnd);
+    expect(result).toEqual(new Date("2026-09-10T11:30"));
+  });
+
+  it("最小長（15分）を下回る終了時刻は、最小長まで確保する", () => {
+    const result = clampResizeEnd(start, new Date("2026-09-10T10:05"), [], dayEnd);
+    expect(result).toEqual(new Date("2026-09-10T10:15"));
+  });
+
+  it("次の予約の開始時刻を超えないようクランプする", () => {
+    const result = clampResizeEnd(
+      start,
+      new Date("2026-09-10T12:00"),
+      [{ start: new Date("2026-09-10T11:00"), end: new Date("2026-09-10T13:00") }],
+      dayEnd,
+    );
+    expect(result).toEqual(new Date("2026-09-10T11:00"));
+  });
+
+  it("対象日の終端を超えないようクランプする", () => {
+    const result = clampResizeEnd(start, new Date("2026-09-12T00:00"), [], dayEnd);
+    expect(result).toEqual(dayEnd);
   });
 });
