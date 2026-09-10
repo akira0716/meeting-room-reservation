@@ -797,6 +797,7 @@ export function FloorMapView({
                 key={selectedRoom.id}
                 room={selectedRoom}
                 onClose={() => setSelectedRoomId(null)}
+                dateKey={data.date}
                 dateLabel={dateLabel}
                 isToday={data.isToday}
                 isAdmin={isAdmin}

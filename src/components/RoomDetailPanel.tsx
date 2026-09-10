@@ -2,67 +2,11 @@
 
 import { useActionState, useState } from "react";
 import { createReservationAction, type CreateReservationState } from "@/app/actions";
-import type { RoomReservation, RoomWithReservations } from "@/lib/queries/getFloorMapData";
+import type { RoomWithReservations } from "@/lib/queries/getFloorMapData";
 import { EditReservationForm } from "./EditReservationForm";
-
-const timeFormatter = new Intl.DateTimeFormat("ja-JP", {
-  hour: "2-digit",
-  minute: "2-digit",
-});
+import { RoomDayTimeline } from "./RoomDayTimeline";
 
 const initialState: CreateReservationState = { status: "idle" };
-
-function ReservationRow({
-  reservation,
-  canModify,
-  isEditing,
-  onStartEdit,
-  onStopEdit,
-}: {
-  reservation: RoomReservation;
-  /** この予約を編集・削除できるか（予約者本人または管理者のみ）。falseなら「編集」ボタン自体を出さない */
-  canModify: boolean;
-  /** 編集中かどうかは呼び出し元（RoomDetailPanel）で管理する。編集中は一覧の
-   *  高さ制限（overflow-y-auto）を外し、編集フォームが縦スクロールなしで
-   *  全部収まるようにするため */
-  isEditing: boolean;
-  onStartEdit: () => void;
-  onStopEdit: () => void;
-}) {
-  if (isEditing) {
-    return (
-      <li>
-        {/* versionをkeyにすることで、他のユーザーの更新をrouter.refresh()で取り込んだ際に
-            フォームが最新の初期値で作り直される（useActionStateの状態もリセットされる） */}
-        <EditReservationForm key={reservation.version} reservation={reservation} onClose={onStopEdit} />
-      </li>
-    );
-  }
-
-  return (
-    <li className="flex items-center justify-between gap-2 rounded border border-black/5 bg-neutral-50 px-2 py-1 text-sm dark:border-white/5 dark:bg-neutral-800">
-      <div>
-        <span className="font-mono text-xs text-neutral-500">
-          {timeFormatter.format(reservation.startAt)}–{timeFormatter.format(reservation.endAt)}
-        </span>{" "}
-        <span className="font-medium">{reservation.title}</span>
-        <span className="text-neutral-500">（{reservation.bookerName}）</span>
-        {reservation.note && (
-          <p className="text-xs text-neutral-400">{reservation.note}</p>
-        )}
-      </div>
-      {canModify && (
-        <button
-          type="button"
-          onClick={onStartEdit}
-          className="shrink-0 text-xs text-neutral-500 underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200"
-        >
-          編集
-        </button>
-      )}
-    </li>
-  );
-}
 
 function BookingForm({
   roomId,
@@ -167,6 +111,7 @@ function BookingForm({
 export function RoomDetailPanel({
   room,
   onClose,
+  dateKey,
   dateLabel,
   isToday,
   isAdmin,
@@ -176,6 +121,8 @@ export function RoomDetailPanel({
   room: RoomWithReservations;
   /** フロアマップ上のポップオーバーとして表示している場合の閉じるボタン。指定時のみ表示する */
   onClose?: () => void;
+  /** フロアマップが表示中の日付（"YYYY-MM-DD"）。タイムラインの表示範囲の計算に使う */
+  dateKey: string;
   /** フロアマップが表示中の日付の表示用ラベル（今日なら"本日"、それ以外は"9月6日(日)"のような形式） */
   dateLabel: string;
   /** dateLabelが今日を指しているか。falseの場合、「使用中」ではなく「予約あり」と表示する
@@ -191,6 +138,7 @@ export function RoomDetailPanel({
   const [showForm, setShowForm] = useState(false);
   const [editingReservationId, setEditingReservationId] = useState<string | null>(null);
   const isBusy = isToday ? room.isOccupiedNow : room.reservations.length > 0;
+  const editingReservation = room.reservations.find((r) => r.id === editingReservationId);
 
   return (
     <div className="rounded-lg border border-black/10 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-neutral-900">
@@ -226,29 +174,27 @@ export function RoomDetailPanel({
       {room.reservations.length === 0 ? (
         <p className="mt-1 text-sm text-neutral-400">{dateLabel}の予約はありません</p>
       ) : (
-        <ul
-          className={
-            // 予約件数によってパネルの高さが変動しないよう、通常時は一定件数を超えたら
-            // 内側でスクロールさせる。ただし編集中は、開始・終了欄を含む編集フォーム全体が
-            // この高さ制限に収まらず縦スクロールバーが出てしまうため、編集中に限り
-            // 高さ制限自体を外す（同時に編集できるのは1件だけなので、外しても
-            // パネルが際限なく伸びることはない）
-            editingReservationId
-              ? "mt-1 space-y-1"
-              : "mt-1 max-h-56 space-y-1 overflow-y-auto"
+        <RoomDayTimeline
+          dateKey={dateKey}
+          reservations={room.reservations}
+          isToday={isToday}
+          canModify={(r) => isAdmin || r.createdByUserId === currentMemberId}
+          selectedReservationId={editingReservationId}
+          onSelectReservation={(id) =>
+            setEditingReservationId((current) => (current === id ? null : id))
           }
-        >
-          {room.reservations.map((r) => (
-            <ReservationRow
-              key={r.id}
-              reservation={r}
-              canModify={isAdmin || r.createdByUserId === currentMemberId}
-              isEditing={editingReservationId === r.id}
-              onStartEdit={() => setEditingReservationId(r.id)}
-              onStopEdit={() => setEditingReservationId(null)}
-            />
-          ))}
-        </ul>
+        />
+      )}
+
+      {/* 編集フォームは、タイムライン内の狭いブロックの中ではなく、その下にまとめて表示する
+          （versionをkeyにすることで、他のユーザーの更新をrouter.refresh()で取り込んだ際に
+          フォームが最新の初期値で作り直される＝useActionStateの状態もリセットされる） */}
+      {editingReservation && (
+        <EditReservationForm
+          key={editingReservation.version}
+          reservation={editingReservation}
+          onClose={() => setEditingReservationId(null)}
+        />
       )}
 
       {!showForm ? (
