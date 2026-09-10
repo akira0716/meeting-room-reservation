@@ -19,11 +19,11 @@ const timeFormatter = new Intl.DateTimeFormat("ja-JP", {
   minute: "2-digit",
 });
 
-// 1時間あたりの高さ。デフォルト表示範囲（8:00〜20:00、12時間）でPX_PER_HOUR=48pxのとき
-// 全体は576pxになり、VIEWPORT_MAX_PXで縦スクロールさせる（狭いポップオーバー内に
-// 収めるため。何時間表示されても1時間あたりの高さは変えず、見やすさを優先する）。
+// 1時間あたりの高さ。表示範囲は常に1日全体（24時間）で、PX_PER_HOUR=48pxのとき
+// 全体は1152pxになるため、VIEWPORT_MAX_PXで縦スクロールさせる（ポップオーバー内に
+// 収めるため）。
 const PX_PER_HOUR = 48;
-const VIEWPORT_MAX_PX = 320;
+const VIEWPORT_MAX_PX = 360;
 // 時刻目盛りの列の幅。予約ブロックはこの右側に表示する
 const HOUR_LABEL_WIDTH_PX = 40;
 // 15分未満の短い予約でもクリックできる・視認できるよう、ブロックの高さの下限を設ける
@@ -70,7 +70,7 @@ export function RoomDayTimeline({
     start: r.startAt,
     end: r.endAt,
   }));
-  const range = computeTimelineRange(dateKey, reservationRanges);
+  const range = computeTimelineRange(dateKey);
   const totalHeightPx = getTimelineHeightPx(range, PX_PER_HOUR);
   const hourMarks = getHourMarks(range);
 

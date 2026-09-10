@@ -27,7 +27,7 @@ function BookingForm({
   // ここではフォームの代わりに完了メッセージを出し、ユーザーの操作（閉じる）でパネルを閉じる。
   if (state.status === "success") {
     return (
-      <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-300">
+      <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-300">
         予約が完了しました。
         <button
           type="button"
@@ -41,7 +41,7 @@ function BookingForm({
   }
 
   return (
-    <form action={formAction} className="mt-4 space-y-2">
+    <form action={formAction} className="space-y-2">
       <input type="hidden" name="roomId" value={roomId} />
       <div>
         <label className="block text-xs font-medium text-neutral-500">会議名</label>
@@ -59,11 +59,11 @@ function BookingForm({
           className="mt-0.5 w-full rounded border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/10"
         />
       </div>
-      {/* このポップオーバーは幅300px固定で、開始・終了を横並び（flex-1×2）にすると
-          datetime-local入力欄の最小幅（ブラウザネイティブの日時ピッカー分、
-          flexアイテムはデフォルトでこれより縮まない）に収まらず、右側の終了欄が
-          パネルの外＝画面外にはみ出してしまう。幅に余裕がないため、横並びではなく
-          縦積みにしてそれぞれ全幅を使わせることで、はみ出しを確実に防ぐ。 */}
+      {/* このフォームは幅固定（w-56、RoomDetailPanel側）の狭い列に入るため、開始・終了を
+          横並び（flex-1×2）にすると、datetime-local入力欄の最小幅（ブラウザネイティブの
+          日時ピッカー分、flexアイテムはデフォルトでこれより縮まない）に収まらず、
+          右側の終了欄が列の外にはみ出してしまう。縦積みにしてそれぞれ全幅を
+          使わせることで、はみ出しを確実に防ぐ。 */}
       <div className="flex flex-col gap-2">
         <div>
           <label className="block text-xs font-medium text-neutral-500">開始</label>
@@ -159,6 +159,14 @@ export function RoomDetailPanel({
     setShowForm(true);
   }
 
+  function handleSelectReservation(id: string) {
+    // 既存予約の編集と、新規予約フォームを同時に開いた状態にはしない
+    // （右側の縦に狭いフォーム欄に両方詰め込むと分かりにくいため）
+    setShowForm(false);
+    setDraftBookingRange(null);
+    setEditingReservationId((current) => (current === id ? null : id));
+  }
+
   return (
     <div className="rounded-lg border border-black/10 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-neutral-900">
       <div className="flex items-center justify-between gap-2">
@@ -189,60 +197,65 @@ export function RoomDetailPanel({
         <p className="mt-1 text-sm text-neutral-500">定員 {room.capacity}名</p>
       )}
 
-      <h3 className="mt-4 text-sm font-medium text-neutral-500">{dateLabel}の予約</h3>
-      {room.reservations.length === 0 && (
-        <p className="mt-1 text-sm text-neutral-400">{dateLabel}の予約はありません</p>
-      )}
-      {/* 予約が1件も無い日でもドラッグで新規予約を選択できるよう、タイムライン自体は
-          件数によらず常に表示する（上の「予約はありません」は補足テキストとして残す） */}
-      <RoomDayTimeline
-        dateKey={dateKey}
-        reservations={room.reservations}
-        isToday={isToday}
-        canModify={(r) => isAdmin || r.createdByUserId === currentMemberId}
-        selectedReservationId={editingReservationId}
-        onSelectReservation={(id) =>
-          setEditingReservationId((current) => (current === id ? null : id))
-        }
-        onRangeSelect={handleRangeSelect}
-      />
-      <p className="mt-1 text-xs text-neutral-400">ドラッグして予約する時間帯を選択できます</p>
+      {/* タイムラインと予約フォームを横並びにする。左（flex-1）：タイムライン、
+          右（幅固定）：新規予約フォームまたは既存予約の編集フォーム。
+          幅を固定にしているのは、フォームの開閉でポップオーバー全体の幅が
+          変動しないようにするため（変動すると位置の再計算のたびにガタつく） */}
+      <div className="mt-4 flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-medium text-neutral-500">{dateLabel}の予約</h3>
+          {room.reservations.length === 0 && (
+            <p className="mt-1 text-sm text-neutral-400">{dateLabel}の予約はありません</p>
+          )}
+          {/* 予約が1件も無い日でもドラッグで新規予約を選択できるよう、タイムライン自体は
+              件数によらず常に表示する（上の「予約はありません」は補足テキストとして残す） */}
+          <RoomDayTimeline
+            dateKey={dateKey}
+            reservations={room.reservations}
+            isToday={isToday}
+            canModify={(r) => isAdmin || r.createdByUserId === currentMemberId}
+            selectedReservationId={editingReservationId}
+            onSelectReservation={handleSelectReservation}
+            onRangeSelect={handleRangeSelect}
+          />
+          <p className="mt-1 text-xs text-neutral-400">ドラッグして予約する時間帯を選択できます</p>
+        </div>
 
-      {/* 編集フォームは、タイムライン内の狭いブロックの中ではなく、その下にまとめて表示する
-          （versionをkeyにすることで、他のユーザーの更新をrouter.refresh()で取り込んだ際に
-          フォームが最新の初期値で作り直される＝useActionStateの状態もリセットされる） */}
-      {editingReservation && (
-        <EditReservationForm
-          key={editingReservation.version}
-          reservation={editingReservation}
-          onClose={() => setEditingReservationId(null)}
-        />
-      )}
-
-      {!showForm ? (
-        <button
-          type="button"
-          onClick={() => {
-            setDraftBookingRange(null);
-            setShowForm(true);
-          }}
-          className="mt-4 rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
-        >
-          この部屋を予約する
-        </button>
-      ) : (
-        <BookingForm
-          // ドラッグで選択し直すたびにbookingRangeが変わるので、keyを変えてフォームを
-          // 作り直し、datetime-local欄のdefaultValueに新しい値を反映させる
-          key={`${bookingRange.start}|${bookingRange.end}`}
-          roomId={room.id}
-          onClose={() => {
-            setShowForm(false);
-            setDraftBookingRange(null);
-          }}
-          initialRange={bookingRange}
-        />
-      )}
+        <div className="w-56 shrink-0">
+          {editingReservation ? (
+            // versionをkeyにすることで、他のユーザーの更新をrouter.refresh()で取り込んだ際に
+            // フォームが最新の初期値で作り直される（useActionStateの状態もリセットされる）
+            <EditReservationForm
+              key={editingReservation.version}
+              reservation={editingReservation}
+              onClose={() => setEditingReservationId(null)}
+            />
+          ) : !showForm ? (
+            <button
+              type="button"
+              onClick={() => {
+                setDraftBookingRange(null);
+                setShowForm(true);
+              }}
+              className="w-full rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+            >
+              この部屋を予約する
+            </button>
+          ) : (
+            <BookingForm
+              // ドラッグで選択し直すたびにbookingRangeが変わるので、keyを変えてフォームを
+              // 作り直し、datetime-local欄のdefaultValueに新しい値を反映させる
+              key={`${bookingRange.start}|${bookingRange.end}`}
+              roomId={room.id}
+              onClose={() => {
+                setShowForm(false);
+                setDraftBookingRange(null);
+              }}
+              initialRange={bookingRange}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }

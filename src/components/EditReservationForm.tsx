@@ -22,7 +22,7 @@ export function EditReservationForm({
   // 楽観ロックの競合（他のユーザーが先に更新した）。入力を上書きせず、読み込み直す操作を促す。
   if (state.status === "error" && state.reason === "stale-version") {
     return (
-      <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-900/30 dark:text-amber-300">
+      <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-900/30 dark:text-amber-300">
         {state.message}
         <div className="mt-2 flex gap-2">
           <button
@@ -49,7 +49,7 @@ export function EditReservationForm({
   // そのため"success"状態がユーザーに見える瞬間は実質的に無く、専用の完了メッセージは出していない。
 
   return (
-    <div className="mt-2 space-y-2 rounded-md border border-black/10 bg-neutral-50 p-2 dark:border-white/10 dark:bg-neutral-800">
+    <div className="space-y-2 rounded-md border border-black/10 bg-neutral-50 p-2 dark:border-white/10 dark:bg-neutral-800">
       <form action={formAction} className="space-y-2">
         <input type="hidden" name="id" value={reservation.id} />
         <input type="hidden" name="version" value={reservation.version} />
@@ -72,10 +72,10 @@ export function EditReservationForm({
             className="mt-0.5 w-full rounded border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/10"
           />
         </div>
-        {/* このポップオーバーは幅300px固定で、開始・終了を横並び（flex-1×2）にすると
-            datetime-local入力欄の最小幅（ブラウザネイティブの日時ピッカー分、flex
-            アイテムはデフォルトでこれより縮まない）に収まらず、右側の終了欄がパネル
-            の外にはみ出し横スクロールが発生してしまう（BookingFormと同じ不具合）。
+        {/* このフォームは幅固定（w-56、RoomDetailPanel側）の狭い列に入るため、開始・終了を
+            横並び（flex-1×2）にすると、datetime-local入力欄の最小幅（ブラウザネイティブの
+            日時ピッカー分、flexアイテムはデフォルトでこれより縮まない）に収まらず、
+            右側の終了欄が列の外にはみ出してしまう（BookingFormと同じ不具合）。
             縦積みにしてそれぞれ全幅を使わせることで、はみ出しを確実に防ぐ。 */}
         <div className="flex flex-col gap-2">
           <div>

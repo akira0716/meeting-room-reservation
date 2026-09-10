@@ -9,35 +9,21 @@ import { parseDateKey } from "./dateKey";
 
 export type TimeRange = { start: Date; end: Date };
 
-/** タイムラインのデフォルト表示範囲（8:00〜20:00）。営業時間の目安として決め打ちしている。
- *  これより早く始まる／遅く終わる予約がある場合は、computeTimelineRangeが自動的に広げる。 */
-export const DEFAULT_TIMELINE_START_HOUR = 8;
-export const DEFAULT_TIMELINE_END_HOUR = 20;
-
 const HOUR_MS = 60 * 60 * 1000;
 
 /**
  * タイムラインの表示範囲（開始・終了のDate）を決める。
- * 基本はdateKeyが指す日の8:00〜20:00だが、それより早く始まる／遅く終わる予約があれば、
- * 予約が見切れないよう表示範囲を広げる。ただし対象日の枠（0:00〜翌0:00）は超えない
- * （getFloorMapDataは日をまたぐ予約もその日にヒットさせるため、日をまたぐ部分は
- * このタイムライン上では見えなくなるが、対象日の枠を超えて表示すると
- * 「今何日を見ているか」が分かりにくくなるためあえてクランプする）。
+ * 常にdateKeyが指す日の0:00〜24:00（1日全体）を返す。対象日の枠を超える予約
+ * （getFloorMapDataは日をまたぐ予約もその日にヒットさせる）があっても、その日の枠を
+ * 超えて表示すると「今何日を見ているか」が分かりにくくなるため、あえて対象日の
+ * 0:00〜翌0:00でクランプする（＝日をまたぐ部分はこのタイムライン上では見えない。
+ * computeBlockLayoutPxが範囲外をクランプするため、はみ出た予約も表示上は
+ * この範囲内で切り詰められる）。
  */
-export function computeTimelineRange(dateKey: string, reservations: TimeRange[]): TimeRange {
-  const dayStart = parseDateKey(dateKey);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayEnd.getDate() + 1);
-
-  let start = new Date(dayStart);
-  start.setHours(DEFAULT_TIMELINE_START_HOUR, 0, 0, 0);
-  let end = new Date(dayStart);
-  end.setHours(DEFAULT_TIMELINE_END_HOUR, 0, 0, 0);
-
-  for (const r of reservations) {
-    if (r.start < start) start = r.start < dayStart ? new Date(dayStart) : r.start;
-    if (r.end > end) end = r.end > dayEnd ? new Date(dayEnd) : r.end;
-  }
+export function computeTimelineRange(dateKey: string): TimeRange {
+  const start = parseDateKey(dateKey);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
   return { start, end };
 }
 

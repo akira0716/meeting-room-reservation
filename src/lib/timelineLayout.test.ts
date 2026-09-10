@@ -10,48 +10,16 @@ import {
 } from "./timelineLayout";
 
 describe("computeTimelineRange", () => {
-  it("予約が無ければデフォルトの8:00〜20:00を返す", () => {
-    const range = computeTimelineRange("2026-09-10", []);
-    expect(range.start).toEqual(new Date("2026-09-10T08:00"));
-    expect(range.end).toEqual(new Date("2026-09-10T20:00"));
-  });
-
-  it("予約がデフォルト範囲に収まっていれば範囲を広げない", () => {
-    const range = computeTimelineRange("2026-09-10", [
-      { start: new Date("2026-09-10T10:00"), end: new Date("2026-09-10T11:00") },
-    ]);
-    expect(range.start).toEqual(new Date("2026-09-10T08:00"));
-    expect(range.end).toEqual(new Date("2026-09-10T20:00"));
-  });
-
-  it("デフォルトより早く始まる予約があれば開始を早める", () => {
-    const range = computeTimelineRange("2026-09-10", [
-      { start: new Date("2026-09-10T07:30"), end: new Date("2026-09-10T08:30") },
-    ]);
-    expect(range.start).toEqual(new Date("2026-09-10T07:30"));
-    expect(range.end).toEqual(new Date("2026-09-10T20:00"));
-  });
-
-  it("デフォルトより遅く終わる予約があれば終了を遅らせる", () => {
-    const range = computeTimelineRange("2026-09-10", [
-      { start: new Date("2026-09-10T19:00"), end: new Date("2026-09-10T21:15") },
-    ]);
-    expect(range.start).toEqual(new Date("2026-09-10T08:00"));
-    expect(range.end).toEqual(new Date("2026-09-10T21:15"));
-  });
-
-  it("対象日の前日から続く予約があっても、開始は対象日の0:00でクランプする", () => {
-    const range = computeTimelineRange("2026-09-10", [
-      { start: new Date("2026-09-09T23:00"), end: new Date("2026-09-10T07:00") },
-    ]);
+  it("常にその日の0:00〜24:00（翌0:00）を返す", () => {
+    const range = computeTimelineRange("2026-09-10");
     expect(range.start).toEqual(new Date("2026-09-10T00:00"));
+    expect(range.end).toEqual(new Date("2026-09-11T00:00"));
   });
 
-  it("翌日にまたがる予約があっても、終了は対象日の24:00（翌0:00）でクランプする", () => {
-    const range = computeTimelineRange("2026-09-10", [
-      { start: new Date("2026-09-10T22:00"), end: new Date("2026-09-11T01:00") },
-    ]);
-    expect(range.end).toEqual(new Date("2026-09-11T00:00"));
+  it("日付が変わればその日の0:00〜翌0:00を返す", () => {
+    const range = computeTimelineRange("2026-12-31");
+    expect(range.start).toEqual(new Date("2026-12-31T00:00"));
+    expect(range.end).toEqual(new Date("2027-01-01T00:00"));
   });
 });
 
