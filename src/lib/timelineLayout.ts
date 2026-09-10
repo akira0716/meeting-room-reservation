@@ -128,3 +128,65 @@ export function finalizeDragRange(
   const defaultEnd = new Date(anchor.getTime() + DEFAULT_DRAG_DURATION_MINUTES * 60_000);
   return clampDragRange(anchor, defaultEnd, reservations);
 }
+
+/**
+ * 既存予約をドラッグで移動させるときの、移動後の時間帯を計算する（長さは常に維持する）。
+ * deltaMsは「ドラッグ開始位置から現在位置までの移動量」。他の予約（引数の
+ * reservationsには移動対象自身を含めないこと）や対象日の範囲（dayRange）とぶつからないよう、
+ * 実際の移動量をクランプする。
+ */
+export function clampMoveRange(
+  original: TimeRange,
+  deltaMs: number,
+  reservations: TimeRange[],
+  dayRange: TimeRange,
+): TimeRange {
+  const durationMs = original.end.getTime() - original.start.getTime();
+  const minStartMs = dayRange.start.getTime();
+  const maxStartMs = dayRange.end.getTime() - durationMs;
+
+  let startMs = original.start.getTime() + deltaMs;
+  startMs = Math.min(Math.max(startMs, minStartMs), maxStartMs);
+
+  for (const r of reservations) {
+    const endMs = startMs + durationMs;
+    if (startMs < r.end.getTime() && endMs > r.start.getTime()) {
+      // 移動方向（未来へ／過去へ）に応じて、ぶつかった予約の手前で止める
+      startMs =
+        deltaMs >= 0
+          ? Math.min(startMs, r.start.getTime() - durationMs)
+          : Math.max(startMs, r.end.getTime());
+    }
+  }
+  // 他の予約に押し戻された結果、対象日の範囲を超えてしまう場合に備えて再度クランプする
+  startMs = Math.min(Math.max(startMs, minStartMs), maxStartMs);
+
+  return { start: new Date(startMs), end: new Date(startMs + durationMs) };
+}
+
+/**
+ * 既存予約の下端（終了時刻）をドラッグでリサイズするときの、リサイズ後の終了時刻を計算する。
+ * 開始時刻（start）は固定。最小長（DRAG_SNAP_MINUTES）を下回らないようにしつつ、
+ * 他の予約（引数のreservationsにはリサイズ対象自身を含めないこと）や対象日の終端
+ * （dayEnd）とはぶつからないようクランプする。ただし、隣接する予約との間隔が
+ * 最小長より狭い場合は、最小長を確保できず短い予約になることもある
+ * （それでも重ならないことを優先する）。
+ */
+export function clampResizeEnd(
+  start: Date,
+  proposedEnd: Date,
+  reservations: TimeRange[],
+  dayEnd: Date,
+): Date {
+  const minEndMs = start.getTime() + DRAG_SNAP_MINUTES * 60_000;
+  let endMs = Math.max(proposedEnd.getTime(), minEndMs);
+  endMs = Math.min(endMs, dayEnd.getTime());
+
+  for (const r of reservations) {
+    if (r.start.getTime() >= start.getTime() && r.start.getTime() < endMs) {
+      endMs = Math.min(endMs, r.start.getTime());
+    }
+  }
+  // 開始時刻より前にはならないようにする（隣接する予約が近すぎる場合の保険）
+  return new Date(Math.max(endMs, start.getTime()));
+}

@@ -1,7 +1,12 @@
 "use client";
 
-import { useActionState, useState } from "react";
-import { createReservationAction, type CreateReservationState } from "@/app/actions";
+import { useRouter } from "next/navigation";
+import { startTransition, useActionState, useState } from "react";
+import {
+  createReservationAction,
+  updateReservationAction,
+  type CreateReservationState,
+} from "@/app/actions";
 import { toDatetimeLocalValue } from "@/lib/dateKey";
 import type { RoomWithReservations } from "@/lib/queries/getFloorMapData";
 import type { TimeRange } from "@/lib/timelineLayout";
@@ -137,6 +142,7 @@ export function RoomDetailPanel({
   /** 予約フォームの開始・終了の初期値（datetime-local文字列） */
   initialBookingRange: { start: string; end: string };
 }) {
+  const router = useRouter();
   const [showForm, setShowForm] = useState(false);
   const [editingReservationId, setEditingReservationId] = useState<string | null>(null);
   // タイムラインをドラッグして選択した時間帯（datetime-local文字列）。未選択（ボタンから
@@ -145,6 +151,9 @@ export function RoomDetailPanel({
   const [draftBookingRange, setDraftBookingRange] = useState<{ start: string; end: string } | null>(
     null,
   );
+  // タイムライン上での既存予約の移動・リサイズが失敗した場合のエラーメッセージ
+  // （通常は起きないが、他ユーザーの操作と競合した場合などに表示する）
+  const [dragError, setDragError] = useState<string | null>(null);
   const isBusy = isToday ? room.isOccupiedNow : room.reservations.length > 0;
   const editingReservation = room.reservations.find((r) => r.id === editingReservationId);
   const bookingRange = draftBookingRange ?? initialBookingRange;
@@ -165,6 +174,39 @@ export function RoomDetailPanel({
     setShowForm(false);
     setDraftBookingRange(null);
     setEditingReservationId((current) => (current === id ? null : id));
+  }
+
+  /**
+   * タイムライン上で既存予約をドラッグして移動・リサイズしたときに呼ばれる。
+   * EditReservationFormの「更新する」ボタンを押すのと同じupdateReservationActionを、
+   * フォームのUIを介さず直接呼び出す（Server Actionはただの関数なので、
+   * <form action>経由でなくても呼び出せる）。会議名・備考は変更しないため、
+   * 現在の値をそのままFormDataに詰め直す
+   */
+  function handleReservationTimeChange(reservationId: string, range: TimeRange) {
+    const reservation = room.reservations.find((r) => r.id === reservationId);
+    if (!reservation) return;
+
+    const formData = new FormData();
+    formData.set("id", reservation.id);
+    formData.set("version", String(reservation.version));
+    formData.set("title", reservation.title);
+    formData.set("note", reservation.note ?? "");
+    formData.set("startAt", toDatetimeLocalValue(range.start));
+    formData.set("endAt", toDatetimeLocalValue(range.end));
+
+    setDragError(null);
+    startTransition(async () => {
+      const result = await updateReservationAction({ status: "idle" }, formData);
+      if (result.status === "error") {
+        // サーバー側の重複チェック・楽観ロックとの競合など。ドラッグ操作なので
+        // 専用のフォームUIは無く、簡潔なメッセージのみ表示する
+        setDragError(result.message);
+      }
+      // 成功時はこのタイムラインの見た目を最新化するため、失敗時も競合相手の
+      // 最新状態を取り込むため、いずれの場合もサーバーの最新データを取得し直す
+      router.refresh();
+    });
   }
 
   return (
@@ -217,8 +259,23 @@ export function RoomDetailPanel({
             selectedReservationId={editingReservationId}
             onSelectReservation={handleSelectReservation}
             onRangeSelect={handleRangeSelect}
+            onReservationTimeChange={handleReservationTimeChange}
           />
-          <p className="mt-1 text-xs text-neutral-400">ドラッグして予約する時間帯を選択できます</p>
+          <p className="mt-1 text-xs text-neutral-400">
+            ドラッグして予約する時間帯を選択、既存の予約はドラッグで移動・下端で長さを変更できます
+          </p>
+          {dragError && (
+            <p className="mt-1 flex items-start justify-between gap-2 text-xs text-rose-600 dark:text-rose-400">
+              <span>{dragError}</span>
+              <button
+                type="button"
+                onClick={() => setDragError(null)}
+                className="shrink-0 underline underline-offset-2"
+              >
+                閉じる
+              </button>
+            </p>
+          )}
         </div>
 
         <div className="w-56 shrink-0">
