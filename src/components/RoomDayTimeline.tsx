@@ -66,7 +66,9 @@ export function RoomDayTimeline({
 
   return (
     <div
-      className="mt-1 overflow-y-auto rounded border border-black/10 dark:border-white/10"
+      // 見た目のスクロールバーを、フロア図画像のスクロールコンテナと同じno-scrollbar
+      // ユーティリティ（globals.css）で非表示にする（スクロール自体は有効なまま）
+      className="no-scrollbar mt-1 overflow-y-auto rounded border border-black/10 dark:border-white/10"
       style={{ maxHeight: Math.min(totalHeightPx, VIEWPORT_MAX_PX) }}
     >
       <div className="relative" style={{ height: totalHeightPx }}>
