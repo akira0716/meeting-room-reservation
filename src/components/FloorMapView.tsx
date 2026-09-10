@@ -11,6 +11,9 @@ import { RoomDetailPanel } from "./RoomDetailPanel";
 const PADDING = 24;
 const DEFAULT_ROOM_WIDTH = 120;
 const DEFAULT_ROOM_HEIGHT = 80;
+// 予約状況ポップオーバーの幅。タイムラインと予約フォームを横並びにするため、
+// 一覧のみだった頃（300px）より広げている
+const POPOVER_WIDTH = 520;
 
 type Position = { x: number; y: number };
 type RoomLayout = { x: number; y: number; width: number; height: number };
@@ -227,7 +230,6 @@ export function FloorMapView({
     const room = displayRooms.find((r) => r.id === selectedRoomId);
     if (!svg || !outer || !room) return;
 
-    const POPOVER_WIDTH = 300;
     const GAP = 8;
 
     function computePosition() {
@@ -791,12 +793,13 @@ export function FloorMapView({
           {!isEditMode && selectedRoom && popoverPos && (
             <div
               className="absolute z-10"
-              style={{ left: popoverPos.left, top: popoverPos.top, width: 300 }}
+              style={{ left: popoverPos.left, top: popoverPos.top, width: POPOVER_WIDTH }}
             >
               <RoomDetailPanel
                 key={selectedRoom.id}
                 room={selectedRoom}
                 onClose={() => setSelectedRoomId(null)}
+                dateKey={data.date}
                 dateLabel={dateLabel}
                 isToday={data.isToday}
                 isAdmin={isAdmin}
