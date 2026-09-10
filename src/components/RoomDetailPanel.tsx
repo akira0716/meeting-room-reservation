@@ -2,7 +2,9 @@
 
 import { useActionState, useState } from "react";
 import { createReservationAction, type CreateReservationState } from "@/app/actions";
+import { toDatetimeLocalValue } from "@/lib/dateKey";
 import type { RoomWithReservations } from "@/lib/queries/getFloorMapData";
+import type { TimeRange } from "@/lib/timelineLayout";
 import { EditReservationForm } from "./EditReservationForm";
 import { RoomDayTimeline } from "./RoomDayTimeline";
 
@@ -137,8 +139,25 @@ export function RoomDetailPanel({
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editingReservationId, setEditingReservationId] = useState<string | null>(null);
+  // タイムラインをドラッグして選択した時間帯（datetime-local文字列）。未選択（ボタンから
+  // 開いた場合）はnullのままで、その場合はinitialBookingRange（呼び出し元が計算した
+  // デフォルト値）を使う
+  const [draftBookingRange, setDraftBookingRange] = useState<{ start: string; end: string } | null>(
+    null,
+  );
   const isBusy = isToday ? room.isOccupiedNow : room.reservations.length > 0;
   const editingReservation = room.reservations.find((r) => r.id === editingReservationId);
+  const bookingRange = draftBookingRange ?? initialBookingRange;
+
+  function handleRangeSelect(range: TimeRange) {
+    // ドラッグでの新規選択と、既存予約の編集フォームを同時に開いた状態にはしない
+    setEditingReservationId(null);
+    setDraftBookingRange({
+      start: toDatetimeLocalValue(range.start),
+      end: toDatetimeLocalValue(range.end),
+    });
+    setShowForm(true);
+  }
 
   return (
     <div className="rounded-lg border border-black/10 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-neutral-900">
@@ -171,20 +190,23 @@ export function RoomDetailPanel({
       )}
 
       <h3 className="mt-4 text-sm font-medium text-neutral-500">{dateLabel}の予約</h3>
-      {room.reservations.length === 0 ? (
+      {room.reservations.length === 0 && (
         <p className="mt-1 text-sm text-neutral-400">{dateLabel}の予約はありません</p>
-      ) : (
-        <RoomDayTimeline
-          dateKey={dateKey}
-          reservations={room.reservations}
-          isToday={isToday}
-          canModify={(r) => isAdmin || r.createdByUserId === currentMemberId}
-          selectedReservationId={editingReservationId}
-          onSelectReservation={(id) =>
-            setEditingReservationId((current) => (current === id ? null : id))
-          }
-        />
       )}
+      {/* 予約が1件も無い日でもドラッグで新規予約を選択できるよう、タイムライン自体は
+          件数によらず常に表示する（上の「予約はありません」は補足テキストとして残す） */}
+      <RoomDayTimeline
+        dateKey={dateKey}
+        reservations={room.reservations}
+        isToday={isToday}
+        canModify={(r) => isAdmin || r.createdByUserId === currentMemberId}
+        selectedReservationId={editingReservationId}
+        onSelectReservation={(id) =>
+          setEditingReservationId((current) => (current === id ? null : id))
+        }
+        onRangeSelect={handleRangeSelect}
+      />
+      <p className="mt-1 text-xs text-neutral-400">ドラッグして予約する時間帯を選択できます</p>
 
       {/* 編集フォームは、タイムライン内の狭いブロックの中ではなく、その下にまとめて表示する
           （versionをkeyにすることで、他のユーザーの更新をrouter.refresh()で取り込んだ際に
@@ -200,16 +222,25 @@ export function RoomDetailPanel({
       {!showForm ? (
         <button
           type="button"
-          onClick={() => setShowForm(true)}
+          onClick={() => {
+            setDraftBookingRange(null);
+            setShowForm(true);
+          }}
           className="mt-4 rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
         >
           この部屋を予約する
         </button>
       ) : (
         <BookingForm
+          // ドラッグで選択し直すたびにbookingRangeが変わるので、keyを変えてフォームを
+          // 作り直し、datetime-local欄のdefaultValueに新しい値を反映させる
+          key={`${bookingRange.start}|${bookingRange.end}`}
           roomId={room.id}
-          onClose={() => setShowForm(false)}
-          initialRange={initialBookingRange}
+          onClose={() => {
+            setShowForm(false);
+            setDraftBookingRange(null);
+          }}
+          initialRange={bookingRange}
         />
       )}
     </div>

@@ -4,6 +4,9 @@ import {
   computeBlockLayoutPx,
   getTimelineHeightPx,
   getHourMarks,
+  roundToNearestMinutes,
+  clampDragRange,
+  finalizeDragRange,
 } from "./timelineLayout";
 
 describe("computeTimelineRange", () => {
@@ -122,5 +125,101 @@ describe("getHourMarks", () => {
       new Date("2026-09-10T08:00"),
       new Date("2026-09-10T09:00"),
     ]);
+  });
+});
+
+describe("roundToNearestMinutes", () => {
+  it("最も近い15分単位に丸める（切り上げ）", () => {
+    expect(roundToNearestMinutes(new Date("2026-09-10T10:08"), 15)).toEqual(
+      new Date("2026-09-10T10:15"),
+    );
+  });
+
+  it("最も近い15分単位に丸める（切り下げ）", () => {
+    expect(roundToNearestMinutes(new Date("2026-09-10T10:07"), 15)).toEqual(
+      new Date("2026-09-10T10:00"),
+    );
+  });
+
+  it("すでにグリッド上にある時刻はそのまま返す", () => {
+    expect(roundToNearestMinutes(new Date("2026-09-10T10:30"), 15)).toEqual(
+      new Date("2026-09-10T10:30"),
+    );
+  });
+});
+
+describe("clampDragRange", () => {
+  it("既存の予約が無ければanchor・pointerをそのまま開始・終了として返す", () => {
+    const result = clampDragRange(
+      new Date("2026-09-10T10:00"),
+      new Date("2026-09-10T11:00"),
+      [],
+    );
+    expect(result).toEqual({ start: new Date("2026-09-10T10:00"), end: new Date("2026-09-10T11:00") });
+  });
+
+  it("pointerがanchorより前でも開始・終了を正しい順序にする", () => {
+    const result = clampDragRange(
+      new Date("2026-09-10T11:00"),
+      new Date("2026-09-10T10:00"),
+      [],
+    );
+    expect(result).toEqual({ start: new Date("2026-09-10T10:00"), end: new Date("2026-09-10T11:00") });
+  });
+
+  it("未来方向（pointerが後ろ）に既存予約があれば、その開始でクランプする", () => {
+    const result = clampDragRange(
+      new Date("2026-09-10T10:00"),
+      new Date("2026-09-10T13:00"),
+      [{ start: new Date("2026-09-10T11:00"), end: new Date("2026-09-10T12:00") }],
+    );
+    expect(result).toEqual({ start: new Date("2026-09-10T10:00"), end: new Date("2026-09-10T11:00") });
+  });
+
+  it("過去方向（pointerが前）に既存予約があれば、その終了でクランプする", () => {
+    const result = clampDragRange(
+      new Date("2026-09-10T13:00"),
+      new Date("2026-09-10T10:00"),
+      [{ start: new Date("2026-09-10T11:00"), end: new Date("2026-09-10T12:00") }],
+    );
+    expect(result).toEqual({ start: new Date("2026-09-10T12:00"), end: new Date("2026-09-10T13:00") });
+  });
+
+  it("選択範囲にかからない予約は無視する", () => {
+    const result = clampDragRange(
+      new Date("2026-09-10T10:00"),
+      new Date("2026-09-10T11:00"),
+      [{ start: new Date("2026-09-10T14:00"), end: new Date("2026-09-10T15:00") }],
+    );
+    expect(result).toEqual({ start: new Date("2026-09-10T10:00"), end: new Date("2026-09-10T11:00") });
+  });
+});
+
+describe("finalizeDragRange", () => {
+  it("グリッド1マス以上の選択はそのまま確定する", () => {
+    const result = finalizeDragRange(
+      new Date("2026-09-10T10:00"),
+      new Date("2026-09-10T10:30"),
+      [],
+    );
+    expect(result).toEqual({ start: new Date("2026-09-10T10:00"), end: new Date("2026-09-10T10:30") });
+  });
+
+  it("ドラッグ量がグリッド1マス未満（実質クリックのみ）なら、デフォルトの30分を確保する", () => {
+    const result = finalizeDragRange(
+      new Date("2026-09-10T10:00"),
+      new Date("2026-09-10T10:05"),
+      [],
+    );
+    expect(result).toEqual({ start: new Date("2026-09-10T10:00"), end: new Date("2026-09-10T10:30") });
+  });
+
+  it("デフォルトの30分を確保する先に既存予約があれば、その手前までしか確保しない", () => {
+    const result = finalizeDragRange(
+      new Date("2026-09-10T10:00"),
+      new Date("2026-09-10T10:00"),
+      [{ start: new Date("2026-09-10T10:15"), end: new Date("2026-09-10T11:00") }],
+    );
+    expect(result).toEqual({ start: new Date("2026-09-10T10:00"), end: new Date("2026-09-10T10:15") });
   });
 });

@@ -79,3 +79,66 @@ export function getHourMarks(timelineRange: TimeRange): Date[] {
   }
   return marks;
 }
+
+/** タイムライン上でのドラッグ操作を、この分単位のグリッドにスナップさせる */
+export const DRAG_SNAP_MINUTES = 15;
+
+/** ドラッグ量が実質クリックのみ（グリッド1マス未満）だった場合に確保する、デフォルトの予約時間（分） */
+export const DEFAULT_DRAG_DURATION_MINUTES = 30;
+
+/** 指定した分単位の最も近いグリッド線に時刻をスナップさせる */
+export function roundToNearestMinutes(date: Date, minutes: number): Date {
+  const ms = minutes * 60_000;
+  return new Date(Math.round(date.getTime() / ms) * ms);
+}
+
+/**
+ * ドラッグで選択中の時間帯（anchor＝ドラッグを開始した固定点、pointer＝現在のポインタ位置に
+ * 対応する時刻）を、既存の予約とぶつからないようクランプして返す。
+ * 同じ会議室の予約同士は重ならない前提（timelineLayout.ts冒頭の前提を参照）なので、
+ * 「anchorより未来にある予約の開始」と「anchorより過去にある予約の終了」でそれぞれ
+ * 選択範囲の端を止めればよい（予約は互いに重ならないため、複数の予約を跨いで
+ * 選択しようとしても最初にぶつかった予約の端で止まる）。
+ */
+export function clampDragRange(anchor: Date, pointer: Date, reservations: TimeRange[]): TimeRange {
+  let start = anchor < pointer ? anchor : pointer;
+  let end = anchor < pointer ? pointer : anchor;
+
+  for (const r of reservations) {
+    if (anchor >= r.start && anchor < r.end) {
+      // anchor自体が既存予約の中にある（本来はUI側でドラッグ開始を防ぐ想定だが、念のため）
+      start = new Date(Math.max(start.getTime(), r.start.getTime()));
+      end = new Date(Math.min(end.getTime(), r.end.getTime()));
+      continue;
+    }
+    if (r.start >= anchor && r.start < end) {
+      end = new Date(Math.min(end.getTime(), r.start.getTime()));
+    }
+    if (r.end <= anchor && r.end > start) {
+      start = new Date(Math.max(start.getTime(), r.end.getTime()));
+    }
+  }
+  return { start, end };
+}
+
+/**
+ * ドラッグ操作の確定値（pointerup時）を計算する。
+ * clampDragRangeでクランプした結果、選択時間がグリッド1マス（DRAG_SNAP_MINUTES）未満
+ * （＝実質ドラッグしていない、クリックのみ）だった場合は、anchorからデフォルトの長さ
+ * （DEFAULT_DRAG_DURATION_MINUTES）を確保する。ただしその場合も、既存の予約とは
+ * 重ならないよう改めてクランプする（デフォルトの長さぶん伸ばした先に別の予約があれば、
+ * そこで止まる＝予約可能な残り時間しか選択されない）。
+ */
+export function finalizeDragRange(
+  anchor: Date,
+  pointer: Date,
+  reservations: TimeRange[],
+): TimeRange {
+  const clamped = clampDragRange(anchor, pointer, reservations);
+  const durationMs = clamped.end.getTime() - clamped.start.getTime();
+  if (durationMs >= DRAG_SNAP_MINUTES * 60_000) {
+    return clamped;
+  }
+  const defaultEnd = new Date(anchor.getTime() + DEFAULT_DRAG_DURATION_MINUTES * 60_000);
+  return clampDragRange(anchor, defaultEnd, reservations);
+}
