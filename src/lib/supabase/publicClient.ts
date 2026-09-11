@@ -5,8 +5,9 @@ const FLOOR_PLANS_BUCKET = "floor-plans";
 /**
  * クライアント/サーバーどちらからも安全に使える公開情報のみのクライアント。
  * publishable keyは公開情報として扱ってよい（旧anon key相当）。
+ * フロア図画像の公開URL生成のほか、ブラウザ側でのRealtime購読（FloorMapView参照）にも使う。
  */
-function getPublicSupabaseClient() {
+export function getPublicSupabaseClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!url || !publishableKey) {
