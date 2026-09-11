@@ -190,7 +190,7 @@ Claude Designの同じプロジェクトに追加されたログイン画面デ�
   - 実機で、3画面すべてでの表示・「会議室マップ」リンクでの復帰・メニューの開閉（外側クリックで閉じる）・アバター無し時のプレースホルダー表示を確認済み
   - **バグ修正**：実機確認で、アカウントメニューにメールアドレスは表示されるが氏名が表示されない不具合を発見。原因は`src/auth.ts`側：招待経由のメンバーは`users`行作成時（`createInvitationAction`）に名前を入力する手段が無く、サインイン時にもGoogleプロフィールの`name`を反映する処理が存在しなかった（新規組織オーナーのセルフサインアップ時にしか`name`を保存していなかった）ため、招待メンバーの`name`は常にnullのままだった。既存メンバーのサインイン時にも、Googleプロフィールの`name`とDBの値が異なれば都度同期するよう修正。次回サインイン時から反映される（JWT戦略のため、サインインし直すまで今のセッションには反映されない）
 
-### 会議室予約UIのタイムライン化（`feature/room-timeline-view`ブランチ、進行中）
+### 会議室予約UIのタイムライン化（`feature/room-timeline-view`ブランチ）
 会議室クリック時の予約状況が、開始・終了を`datetime-local`で手入力する一覧＋フォーム方式だったのを、Outlookのように1日分の予約を縦軸の時刻タイムラインとして表示し、ドラッグで時間帯を選択して予約できる方式に変更した。PC操作のみを想定しており、タッチ操作の考慮は不要という前提。
 - [x] **タイムライン表示**：[RoomDayTimeline.tsx](./src/components/RoomDayTimeline.tsx)を新設し、[RoomDetailPanel.tsx](./src/components/RoomDetailPanel.tsx)の予約一覧（`<ul>`）を置き換えた
   - 時刻計算（表示範囲・ブロックの位置とサイズ・時刻目盛り）はDOM非依存の純粋関数として[timelineLayout.ts](./src/lib/timelineLayout.ts)に切り出し、`reservationOverlap.ts`と同じ方針でVitestの単体テストを書いた（[timelineLayout.test.ts](./src/lib/timelineLayout.test.ts)）
@@ -221,6 +221,19 @@ Claude Designの同じプロジェクトに追加されたログイン画面デ�
   - サーバー側の重複チェック・楽観ロック・組織所有チェックはそのまま活きる。競合等でエラーになった場合は、専用フォームが無いため簡潔なメッセージを表示するのみとした。成功・失敗どちらでも`router.refresh()`でその場の表示を最新化する
   - **バグ修正**：リサイズハンドル（ブロック内側の子要素）とブロック本体の両方に同じpointerイベントハンドラを付けていたため、リサイズ確定時にイベントがハンドルからブロック本体へバブリングしてハンドラが二重に呼ばれ、サーバーへの反映が2回走ってしまう不具合があった（pointer captureは対象の要素を固定するだけでバブリング自体は止めない）。ハンドラの先頭で`stopPropagation`するよう修正
   - 実機で動作確認済み
+
+### フロアマップのリアルタイム反映（`feature/floor-map-realtime`ブランチ）
+これまで予約・会議室配置の変更は、操作した本人の画面だけ`revalidatePath`で最新化される方式で、同じフロアマップを開いている他の利用者の画面には（再読み込みするまで）反映されなかった。Supabase Realtime（Broadcast機能）を使い、他の利用者の画面にも自動で反映されるようにした。
+- [x] **設計**：Postgres Changes（テーブルのレプリケーションを有効化し、DBの変更を直接ブロードキャストする方式）ではなく、Broadcast（アプリのサーバー側から明示的にメッセージを送る方式）を採用した
+  - このアプリの認可はSupabase Auth（RLS）ではなくAuth.js＋自前の`users`テーブルで完結している（README「設計判断の経緯」参照）ため、RLSによる組織スコープ制御を前提とするPostgres Changesとは相性が悪い（テーブルのレプリケーションを有効化すると、RLSを適切に組まない限り他組織のデータまで流れてしまう懸念がある）
+  - Broadcastなら送信元は既存の組織所有チェックを通過済みのServer Action自身になるため、この懸念が生じない。ブロードキャストの中身（payload）は持たせず「何かが変わった」という合図のみとし、実データは必ずNext.js側（`router.refresh()`）から組織スコープ済みのサーバーデータとして取り直させる設計にした（チャンネル名が万一推測されても実害を最小限にするため）
+  - チャンネルは組織単位（[realtimeChannels.ts](./src/lib/supabase/realtimeChannels.ts)の`floorMapChannelName`）。フロアマップは組織内の全フロア・全会議室の当日データを1回のクエリでまとめて取得しており、フロアタブの切り替えはクライアント側の表示切り替えのみ（再取得しない）ため、日付・フロア単位に分けても実際の再取得単位とずれてしまう。別の日付を見ている利用者にも通知が届くが、`router.refresh()`は現在表示中の日付で再取得するだけなので無駄なリフレッシュが起きても実害は無いと判断した
+- [x] **実装**：[broadcastFloorMapChange.ts](./src/lib/supabase/broadcastFloorMapChange.ts)を新設し、`createReservationAction`・`updateReservationAction`・`deleteReservationAction`・`saveFloorLayoutAction`の各`revalidatePath`の直後で呼び出す。送信は`channel.httpSend()`（REST経由、`@supabase/supabase-js` 2.37以降）を使い、WebSocket接続の確立や事前の`subscribe()`が不要な短命処理向けの方式にした
+  - 受信側は[FloorMapView.tsx](./src/components/FloorMapView.tsx)に`useEffect`を追加し、`getPublicSupabaseClient()`（publishable key、フロア図画像の公開URL生成で使っていたものを`export`に変更して共用）でチャンネルを購読、メッセージを受けたら`router.refresh()`する
+  - 会議室配置の編集モード中にリフレッシュすると、ドラッグ操作中の配置が新しいデータで上書きされてガタつくため、編集モード中は何もしない（`isEditMode`を`ref`で参照し、購読自体は張りっぱなしにして再接続を避けている）
+  - Postgres Changesと違いDB側の設定（レプリケーション有効化）は不要で、Supabaseダッシュボードでの追加作業無しに動作する
+- [x] `floorMapChannelName`の単体テストを追加（[realtimeChannels.test.ts](./src/lib/supabase/realtimeChannels.test.ts)）。Realtimeの送受信そのものはDB結合と同様に自動テストの対象外だが、実装確認として本番のSupabaseプロジェクトに対し、アプリを介さない最小限のスクリプトでpublishable keyでの購読→secret keyでの`httpSend`→受信、が実際に通ることを確認した（スクリプトはコミットしていない）
+- [ ] 実機で、2つのブラウザ（別ユーザーまたは同一ユーザーの別タブ）を開いた状態での自動反映を確認
 
 ## 優先度：低（余力があれば）
 

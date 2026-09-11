@@ -45,6 +45,7 @@ export type FloorWithRooms = {
 };
 
 export type FloorMapData = {
+  organizationId: string;
   organizationName: string;
   buildingName: string;
   /** 表示対象の日付（"YYYY-MM-DD"、ローカル日付） */
@@ -159,6 +160,7 @@ export async function getFloorMapData(
     }));
 
   return {
+    organizationId: org.id,
     organizationName: org.name,
     buildingName: building.name,
     date: toDateKey(targetDate),

@@ -1,10 +1,13 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { saveFloorLayoutAction, type NewRoomInput } from "@/app/actions";
 import { formatDateLabel, toDatetimeLocalValue } from "@/lib/dateKey";
 import type { FloorMapData, RoomWithReservations } from "@/lib/queries/getFloorMapData";
 import { isOverlapping } from "@/lib/services/reservationOverlap";
+import { getPublicSupabaseClient } from "@/lib/supabase/publicClient";
+import { floorMapChannelName, FLOOR_MAP_CHANGED_EVENT } from "@/lib/supabase/realtimeChannels";
 import { FloorPlanUploadForm } from "./FloorPlanUploadForm";
 import { RoomDetailPanel } from "./RoomDetailPanel";
 
@@ -72,6 +75,7 @@ export function FloorMapView({
   const [searchCapacity, setSearchCapacity] = useState("");
   const [searchStartTime, setSearchStartTime] = useState("");
   const [searchEndTime, setSearchEndTime] = useState("");
+  const router = useRouter();
   const svgRef = useRef<SVGSVGElement>(null);
   // mapOuterRef: ポップオーバーの位置決めの基準（overflowをclipしない、常に全体を包む要素）
   // mapContainerRef: 実際にスクロール／クリップする箱（フロア図画像の表示・スクロール状態はここが持つ）
@@ -80,6 +84,35 @@ export function FloorMapView({
   const dragOffsetRef = useRef({ x: 0, y: 0 });
   const dragSizeRef = useRef({ width: 0, height: 0 });
   const resizeOriginRef = useRef({ x: 0, y: 0 });
+  // Realtime購読のコールバック（下のuseEffectで購読時に1回だけ作る）から常に最新の
+  // isEditModeを参照するためのref。isEditModeが変わるたびに購読し直す（＝一瞬でも
+  // 切断・再接続する）のを避けるための一般的なやり方
+  const isEditModeRef = useRef(isEditMode);
+  useEffect(() => {
+    isEditModeRef.current = isEditMode;
+  }, [isEditMode]);
+
+  // 同じ組織の他の利用者が予約・会議室配置を変更したら、Supabase Realtime（Broadcast）
+  // 経由で知らせを受け取り、このページのサーバーデータを取り直す（router.refresh()）。
+  // 実データはBroadcastのpayloadに乗せず、必ずサーバー側から組織スコープ済みで
+  // 再取得する（詳細はrealtimeChannels.ts参照）。
+  // 編集モード中（会議室の配置をドラッグ操作中）にリフレッシュすると、操作中の配置が
+  // 新しいデータで上書きされてガタつくため、編集モード中は何もしない
+  // （編集モードを抜けた後の操作で自然に最新化される）。
+  useEffect(() => {
+    const supabase = getPublicSupabaseClient();
+    const channel = supabase
+      .channel(floorMapChannelName(data.organizationId))
+      .on("broadcast", { event: FLOOR_MAP_CHANGED_EVENT }, () => {
+        if (isEditModeRef.current) return;
+        router.refresh();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [data.organizationId, router]);
 
   const selectedFloor = data.floors.find((f) => f.id === selectedFloorId) ?? data.floors[0];
   const hasPendingChanges =

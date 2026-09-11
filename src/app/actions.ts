@@ -13,6 +13,7 @@ import {
   deleteReservation,
   ReservationConflictError,
 } from "@/lib/services/reservationService";
+import { broadcastFloorMapChange } from "@/lib/supabase/broadcastFloorMapChange";
 
 /** 会議室の最小サイズ（px相当）。誤操作で潰れたサイズにならないようサーバー側でもクランプする */
 const MIN_ROOM_SIZE = 20;
@@ -147,6 +148,9 @@ export async function createReservationAction(
   }
 
   revalidatePath("/");
+  // 同じ組織の他の利用者が開いているフロアマップにも、自動で反映されるよう知らせる
+  // （フォームを送信した本人はrevalidatePathで、他の利用者はこちらで更新される）
+  await broadcastFloorMapChange(member.organizationId);
   return { status: "success" };
 }
 
@@ -195,6 +199,7 @@ export async function updateReservationAction(
   }
 
   revalidatePath("/");
+  await broadcastFloorMapChange(member.organizationId);
   return { status: "success" };
 }
 
@@ -237,6 +242,7 @@ export async function deleteReservationAction(
   }
 
   revalidatePath("/");
+  await broadcastFloorMapChange(member.organizationId);
   return { status: "success" };
 }
 
@@ -336,5 +342,6 @@ export async function saveFloorLayoutAction(
   });
 
   revalidatePath("/");
+  await broadcastFloorMapChange(member.organizationId);
   return {};
 }
