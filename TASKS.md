@@ -8,6 +8,19 @@
 - [x] `createReservationAction`/`updateReservationAction`/`deleteReservationAction`（[actions.ts](./src/app/actions.ts)）が、対象の会議室・予約が操作者の所属組織のものかを検証していない。組織が1つしかなかった頃は問題が表面化しなかったが、複数組織が存在する今は、他組織のroomId/予約IDを直接指定されると操作できてしまう可能性がある。`saveFloorLayoutAction`・フロア図アップロードAPIと同じ「組織所有チェック」パターンを追加する必要がある
   - `isRoomInOrganization`（rooms→floors→buildings）・`isReservationInOrganization`（reservations→rooms→floors→buildings）を追加し、3つのActionそれぞれで書き込み前に検証するよう修正。テストはDB結合が必要でこのリポジトリに結合テストの仕組みがまだ無いため追加せず（`saveFloorLayoutAction`の既存の組織所有チェックにもテストが無いのと同様）。tsc/eslint/vitest/buildはすべて成功を確認済み
 
+### バグ修正：本番環境で予約時刻が9時間ずれる（`fix/production-timezone-offset`ブランチ）
+本番（Vercel）で予約を登録すると、指定した時刻から9時間ずれて登録される不具合が見つかった。ローカル環境では発生しない。
+- **原因**：このアプリの日時処理（[dateKey.ts](./src/lib/dateKey.ts)・[getFloorMapData.ts](./src/lib/queries/getFloorMapData.ts)・予約フォームの`datetime-local`パース・[timelineLayout.ts](./src/lib/timelineLayout.ts)等）は、「サーバーのローカル時刻をそのままその組織の営業日・営業時刻とみなす」設計にしている（1組織＝1タイムゾーンという前提のシンプルな実装）。この前提はローカル開発機のOSが日本時間に設定されている間は問題なく成立するが、本番のVercel（Node.jsのデフォルトは`TZ=UTC`）ではサーバーのローカル時刻がUTCになるため、例えば予約フォームで「10:00」と入力しても`new Date("...T10:00")`がUTCの10:00（＝日本時間19:00）として解釈されてしまい、9時間ずれて登録される。9時間という差はUTCとJST(UTC+9)の時差そのもの
+  - 読み出し側（一覧表示・タイムライン表示等）も同じ前提でローカル時刻を扱っているため同じ方向にズレる。そのため画面内の表示だけを見ている分には気づきにくく、「使用中」判定（`new Date()`という実際の現在時刻と比較する箇所）や外部（DBを直接見る等）から見た実際の時刻と比べて初めて表面化する
+  - Date処理を使っている箇所はdateKey.ts・getFloorMapData.ts・actions.ts・timelineLayout.ts・getCalendarMonthData.ts・CalendarGrid.tsx等、アプリ全体に広く前提として組み込まれているため、個々の呼び出し箇所を書き換える対症療法ではなく、前提（サーバーのローカル時刻）自体を本番でも日本時間に固定する方針にした
+- **修正**：Next.js公式の[instrumentationフック](https://nextjs.org/docs/app/api-reference/file-conventions/instrumentation)（[src/instrumentation.ts](./src/instrumentation.ts)）で、サーバー起動時（リクエスト処理が始まる前）に`process.env.TZ = "Asia/Tokyo"`を設定するようにした。日時処理まわりの既存コードは一切変更していない
+  - Node.js（V8）は`process.env.TZ`をDateの計算のたびに動的に参照するため、プロセス起動後に値を変更しても以降のDate計算に反映されることを確認済み（`TZ=UTC node -e`で検証）
+  - 副次的な利点として、ローカル開発時の挙動が開発者のOS設定に依存しなくなる（今まで「たまたま開発機が日本時間だったから気づかなかった」状態だった）
+  - `instrumentation`のNode.js runtimeでの動作は`v15.0.0`で安定版化済み（`v13.2.0`で実験的機能として導入）。今回のアプリはNode.js runtimeのみを使用（Edge runtimeの利用箇所は無し）のため、条件分岐は不要と判断した
+  - 実際に本番環境を模して（`TZ=UTC`でサーバーを起動し）動作確認：一時的な診断用ルートで`Intl.DateTimeFormat().resolvedOptions().timeZone`・`new Date("2026-09-10T10:00").toISOString()`を確認し、`TZ=UTC`で起動したにもかかわらず`Asia/Tokyo`として解釈される（`2026-09-10T01:00:00.000Z`＝日本時間10:00と正しく一致）ことを確認した（診断用ルートはコミットしていない）
+  - tsc/eslint/vitest/buildはすべて成功を確認済み
+- [ ] Vercel本番環境への反映後、実際に予約を作成して意図した時刻で保存されることを確認
+
 ### デプロイ（ポートフォリオとして公開するために必須）
 - [x] Vercelへデプロイ：https://meeting-room-reservation-theta.vercel.app/login
 - [x] 環境変数（`DATABASE_URL` / `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` / `SUPABASE_SECRET_KEY`）をVercel側に設定
